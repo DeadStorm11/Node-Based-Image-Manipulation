@@ -70,6 +70,7 @@ ImVec2 dragStartPos = ImVec2(0, 0);
 ImVec2 currentMousePos = ImVec2(0, 0);
 Link* activeLink = nullptr;
 vector<Link> links;
+vector<Pin> Pins;
 
 Pin* GetPinUnderMouse(vector<Pin>& pins) {
     ImVec2 mousePos = ImGui::GetIO().MousePos;
@@ -334,10 +335,12 @@ int main(int, char**)
             NumOfInputPins = 2;
             NumOfOutputPins = 2;
             for (int i = 0;i < NumOfInputPins;i++) {
-                inputPins.push_back({ GetNextPinId(),"In",ImVec2(position.x,position.y + 20 * pow(2,i)),true });
+                string PinName1 = "In";
+                inputPins.push_back({ GetNextPinId(),PinName1+"##"+to_string(i),ImVec2(position.x,position.y + 20 * pow(2,i)),true});
             }
             for (int j = 0;j < NumOfOutputPins;j++) {
-                outputPins.push_back({ GetNextPinId(),"Out",ImVec2(position.x + size.x,position.y + 20 * pow(2,j)),false });
+                string PinName2 = "Out";
+                outputPins.push_back({ GetNextPinId(),PinName2 + "##" + to_string(j),ImVec2(position.x + size.x,position.y + 20 * pow(2,j)),false });
             }
         }
         float brightness = 0.0f;
@@ -408,15 +411,14 @@ int main(int, char**)
             }
 
             ImGui::EndGroup();
-
-            DrawLinksAndHandleDrag(outputPins);
+            Pins.insert(Pins.end(), outputPins.begin(), outputPins.end());
+ 
+            DrawLinksAndHandleDrag(Pins);
         }
     };
 
 
-    class NewNode : public BaseNode {
-
-    };
+    
 
     
 
@@ -556,7 +558,7 @@ int main(int, char**)
 
 
 
-        // SETTING UP NODES [WINDOW]
+ 
         
         
 
