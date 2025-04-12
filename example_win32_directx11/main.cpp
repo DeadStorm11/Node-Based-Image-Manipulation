@@ -11,6 +11,15 @@
 #include "imgui_impl_dx11.h"
 #include <d3d11.h>
 #include <tchar.h>
+#include <math.h>
+#include <string>
+#include <vector>
+#include <memory>
+
+using namespace ImGui;
+using namespace std;
+
+#define CLAMP(x, min, max) ((x < min) ? min : (x > max) ? max : x)
 
 // Data
 static ID3D11Device*            g_pd3dDevice = nullptr;
@@ -26,6 +35,154 @@ void CleanupDeviceD3D();
 void CreateRenderTarget();
 void CleanupRenderTarget();
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
+
+int GetNextPinId() {
+    static int currentId = 1000;
+    return currentId++;
+}
+
+
+struct Pin {
+    int id;
+    string label;
+    ImVec2 Pos;
+    bool isInput;
+    float radius = 5.0f;
+
+    bool IsMouseOver(const ImVec2& mousePos) {
+        float distance = sqrt(pow(mousePos.x - Pos.x, 2) + pow(mousePos.y - Pos.y, 2));
+        return distance <= radius;
+    }
+};
+
+struct Link {
+    int id;
+    Pin* fromPin;
+    Pin* toPin;
+};
+
+
+// Variables For Linking
+
+bool isDraggingLink = false;
+ImVec2 dragStartPos = ImVec2(0, 0);
+ImVec2 currentMousePos = ImVec2(0, 0);
+Link* activeLink = nullptr;
+vector<Link> links;
+
+Pin* GetPinUnderMouse(vector<Pin>& pins) {
+    ImVec2 mousePos = ImGui::GetIO().MousePos;
+    for (auto& pin : pins) {
+        if (pin.IsMouseOver(mousePos)) {
+            return &pin;
+        }
+    }
+    return nullptr;
+}
+
+void DrawBezierCurve(ImDrawList* drawList, const ImVec2& start, const ImVec2& end, const ImVec2& control, ImU32 color, float thickness = 1.5f) {
+    const int segments = 30;
+    for (int i = 0; i < segments; ++i) {
+        float t0 = (float)i / (float)(segments - 1);
+        float t1 = (float)(i + 1) / (float)(segments - 1);
+
+        ImVec2 p0 = ImVec2(
+            start.x * (1 - t0) * (1 - t0) + control.x * 2 * (1 - t0) * t0 + end.x * t0 * t0,
+            start.y * (1 - t0) * (1 - t0) + control.y * 2 * (1 - t0) * t0 + end.y * t0 * t0
+        );
+
+        ImVec2 p1 = ImVec2(
+            start.x * (1 - t1) * (1 - t1) + control.x * 2 * (1 - t1) * t1 + end.x * t1 * t1,
+            start.y * (1 - t1) * (1 - t1) + control.y * 2 * (1 - t1) * t1 + end.y * t1 * t1
+        );
+
+
+        drawList->AddLine(p0, p1, color, thickness);
+    }
+}
+
+void UpdateDragLink() {
+    ImVec2 mousePos = ImGui::GetMousePos();
+    ImDrawList* drawList = ImGui::GetForegroundDrawList();
+
+    // Handle the case when dragging has started
+    if (isDraggingLink) {
+        // Draw the link as the user drags
+        ImVec2 start = dragStartPos;
+        ImVec2 end = mousePos; // The end follows the mouse position
+        ImVec2 control = ImVec2((start.x + end.x) / 2, (start.y + end.y) / 2 - 50);  // Modify this control point as necessary
+
+        // Draw the Bezier curve from the start to the current mouse position
+        DrawBezierCurve(drawList, start, end, control, IM_COL32(255, 255, 255, 255));
+    }
+    else if (activeLink) {
+        // Finalize the link when the mouse is released
+        ImVec2 start = activeLink->fromPin->Pos;
+        ImVec2 end = activeLink->toPin->Pos;
+
+        // Draw the final link (with the actual control points)
+        ImVec2 control = ImVec2((start.x + end.x) / 2, (start.y + end.y) / 2 - 50);  // Modify this control point as necessary
+        DrawBezierCurve(drawList, start, end, control, IM_COL32(255, 255, 255, 255));
+    }
+}
+void StartDragLink(Pin* fromPin) {
+    isDraggingLink = true;
+    dragStartPos = fromPin->Pos;
+    activeLink = new Link(); // Create a new link object
+    activeLink->fromPin = fromPin; // Set the from pin
+}
+
+// Function to handle releasing the drag (finalizing the link)
+void EndDragLink(Pin* toPin) {
+    if (isDraggingLink && activeLink) {
+        activeLink->toPin = toPin; // Set the to pin
+        isDraggingLink = false;
+        // Save the active link (connect fromPin to toPin)
+        links.push_back(*activeLink);
+        activeLink = nullptr;
+    }
+}
+
+
+
+
+// FUNCTION FOR DRAGGING AND LINKING
+
+
+void DrawLinksAndHandleDrag(vector<Pin>& pins) {
+    
+    if (!isDraggingLink && ImGui::IsMouseDown(0)) {
+        Pin* fromPin = GetPinUnderMouse(pins); // Get the pin that was clicked (you'll need to implement this)
+        if (fromPin) {
+            StartDragLink(fromPin);
+        }
+    }
+
+    // Check for release (when mouse button is released)
+    if (ImGui::IsMouseReleased(0)) {
+        Pin* toPin = GetPinUnderMouse(pins); // Get the pin under the mouse after drag
+        if (toPin && activeLink) {
+            EndDragLink(toPin);
+        }
+        else if (activeLink) {
+            isDraggingLink = false;
+            activeLink = nullptr;
+        }
+    }
+
+    // Draw all existing links
+    for (const Link& link : links) {
+        ImVec2 start = link.fromPin->Pos;
+        ImVec2 end = link.toPin->Pos;
+        ImVec2 control = ImVec2((start.x + end.x) / 2, (start.y + end.y) / 2 - 50);
+        DrawBezierCurve(ImGui::GetForegroundDrawList(), start, end, control, IM_COL32(255, 255, 255, 255));
+    }
+
+    // Draw the dragging link (if any)
+    UpdateDragLink();
+}
+
 
 // Main code
 int main(int, char**)
@@ -79,13 +236,210 @@ int main(int, char**)
     //ImFont* font = io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\ArialUni.ttf", 18.0f, nullptr, io.Fonts->GetGlyphRangesJapanese());
     //IM_ASSERT(font != nullptr);
 
+
+    
+
+
+    // Pin Class
+
+    //struct Pin {
+    //    int id;
+    //    string label;
+    //    ImVec2 Pos;
+    //    bool isInput;
+    //    float radius = 5.0f;
+
+    //    bool IsMouseOver(const ImVec2& mousePos) {
+    //        float distance = sqrt(pow(mousePos.x - Pos.x, 2) + pow(mousePos.y - Pos.y, 2));
+    //        return distance <= radius;
+    //    }
+    //};
+
+
+
+    // Link Class
+
+    //struct Link {
+    //    int id;
+    //    int fromPinId;
+    //    int toPinId;
+    //};
+
+    // Node Class
+
+    class BaseNode {
+    public:
+        ImVec2 position = ImVec2(50, 50);
+        ImVec2 size = ImVec2(150, 250);
+        bool selected = false;
+        bool resized = false;
+        string NodeName = "Simple Node";
+        vector<Pin> inputPins;
+        vector<Pin> outputPins;
+        int NumOfInputPins = 1;
+        int NumOfOutputPins = 1;
+
+
+        virtual void Draw(ImVec2 gridMin, ImVec2 gridMax, string &NodeName) {
+            if (!resized) {
+                ImGui::SetNextWindowPos(position);
+                ImGui::SetNextWindowSize(size);
+                resized = true;
+            }
+
+            // Style
+            ImGui::PushStyleColor(ImGuiCol_Border, selected ? IM_COL32(212, 28, 28, 255) : IM_COL32(0, 0, 0, 0));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, selected ? 2.0f : 0.0f);
+            ImGui::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(59, 59, 56, 255));
+            GetStyle().WindowRounding = 7.0f;
+
+            ImGui::PushID(this); // Avoid ID conflicts
+
+            if (ImGui::Begin(NodeName.c_str(), nullptr, ImGuiWindowFlags_NoResize)) {
+                ImVec2 winPos = ImGui::GetWindowPos();
+                ImVec2 winSize = ImGui::GetWindowSize();
+
+                if (ImGui::IsWindowHovered() && ImGui::IsMouseDragging(0)) {
+                    ImVec2 delta = ImGui::GetIO().MouseDelta;
+                    winPos.x += delta.x;
+                    winPos.y += delta.y;
+
+                    winPos.x = CLAMP(winPos.x, gridMin.x, gridMax.x - winSize.x);
+                    winPos.y = CLAMP(winPos.y, gridMin.y, gridMax.y - winSize.y);
+                    ImGui::SetWindowPos(winPos);
+                    position = winPos;
+                }
+
+                selected = ImGui::IsWindowHovered() && ImGui::IsMouseClicked(0);
+
+                DrawContent();
+            }
+            ImGui::End();
+
+            ImGui::PopStyleColor(2);
+            ImGui::PopStyleVar();
+            ImGui::PopID();
+        }
+
+        virtual void DrawContent() = 0;
+        virtual ~BaseNode() = default;
+    };
+
+    // Brightness Node
+    
+    class BrightnessNode : public BaseNode {
+    public:
+        BrightnessNode() {
+            NodeName = "Brightness Node";
+            NumOfInputPins = 2;
+            NumOfOutputPins = 2;
+            for (int i = 0;i < NumOfInputPins;i++) {
+                inputPins.push_back({ GetNextPinId(),"In",ImVec2(position.x,position.y + 20 * pow(2,i)),true });
+            }
+            for (int j = 0;j < NumOfOutputPins;j++) {
+                outputPins.push_back({ GetNextPinId(),"Out",ImVec2(position.x + size.x,position.y + 20 * pow(2,j)),false });
+            }
+        }
+        float brightness = 0.0f;
+        float contrast = 1.0f;
+
+        void DrawContent() override {
+            ImDrawList* drawList = ImGui::GetForegroundDrawList();
+            ImVec2 winPos = ImGui::GetWindowPos();
+            ImVec2 winSize = ImGui::GetWindowSize();
+            float InitialLoc = 80.0f;
+            float Gap = 80.0f;
+
+            // Draw input pins
+            for (int i = 0; i < inputPins.size(); ++i) {
+                ImVec2 localPos = ImVec2(0, InitialLoc + i * Gap); // Local offset inside the node
+                inputPins[i].Pos = ImVec2(winPos.x + localPos.x, winPos.y + localPos.y);
+                drawList->AddCircleFilled(inputPins[i].Pos, 5.0f, IM_COL32(255, 255, 255, 255));
+            }
+
+            // Draw output pins
+            for (int i = 0; i < outputPins.size(); ++i) {
+                ImVec2 localPos = ImVec2(size.x, InitialLoc + i * Gap); // Right edge of node
+                outputPins[i].Pos = ImVec2(winPos.x + localPos.x,winPos.y+localPos.y);
+                drawList->AddCircleFilled(outputPins[i].Pos, 5.0f, IM_COL32(255, 255, 255, 255));
+            }
+            float controlsWidth = 130.0f;   // Slider width
+            float resetButtonWidth = controlsWidth * 0.5f; // Shorter reset buttons
+            float controlSpacing = 15.0f;
+
+            float controlsHeight = (ImGui::GetTextLineHeight() + ImGui::GetFrameHeight() * 2 + controlSpacing + 10.0f) * 2;
+
+            ImVec2 center(
+                (winSize.x - controlsWidth) * 0.5f,
+                (winSize.y - controlsHeight) * 0.5f
+            );
+            ImGui::SetCursorPos(center);
+
+            ImGui::BeginGroup();
+
+            // Brightness
+            ImGui::SetCursorPosX(center.x + (controlsWidth - ImGui::CalcTextSize("Brightness").x) * 0.5f);
+            ImGui::Text("Brightness");
+
+            ImGui::SetCursorPosX(center.x);
+            ImGui::SetNextItemWidth(controlsWidth);
+            ImGui::SliderFloat("##Brightness", &brightness, -100.0f, 100.0f, "%.1f");
+
+            // Center the short Reset button
+            ImGui::SetCursorPosX(center.x + (controlsWidth - resetButtonWidth) * 0.5f);
+            if (ImGui::Button("Reset##0", ImVec2(resetButtonWidth, 0))) {
+                brightness = 0.0f;
+            }
+
+            // Gap
+            ImGui::Dummy(ImVec2(1.0f, controlSpacing));
+
+            // Contrast
+            ImGui::SetCursorPosX(center.x + (controlsWidth - ImGui::CalcTextSize("Contrast").x) * 0.5f);
+            ImGui::Text("Contrast");
+
+            ImGui::SetCursorPosX(center.x);
+            ImGui::SetNextItemWidth(controlsWidth);
+            ImGui::SliderFloat("##Contrast", &contrast, 0.0f, 3.0f, "%.2f");
+
+            ImGui::SetCursorPosX(center.x + (controlsWidth - resetButtonWidth) * 0.5f);
+            if (ImGui::Button("Reset##1", ImVec2(resetButtonWidth, 0))) {
+                contrast = 1.0f;
+            }
+
+            ImGui::EndGroup();
+
+            DrawLinksAndHandleDrag(outputPins);
+        }
+    };
+
+
+    class NewNode : public BaseNode {
+
+    };
+
+    
+
+
+
+
+
+    vector<std::unique_ptr<BaseNode>> nodes;
     // Our state
-    bool show_demo_window = true;
-    bool show_another_window = false;
+    //bool show_demo_window = true;
+    //bool show_another_window = false;
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
+    // SOME VARIABLES
+    static float gridZoom = 1.0f; // Starting at 100% zoom
+    ImVec2 NodeSpawnPos = ImVec2(50, 50);
+    ImVec2 NodesSize = ImVec2(100, 200);
+    /*bool ResizeNode = false;
+    bool SelectedNodeOutline = false;*/
+
+
+
     // Main loop
-    bool isopened = false;
     bool done = false;
     while (!done)
     {
@@ -124,47 +478,107 @@ int main(int, char**)
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
-        //// 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
-        //if (show_demo_window)
-        //    ImGui::ShowDemoWindow(&show_demo_window);
+        
 
-        //// 2. Show a simple window that we create ourselves. We use a Begin/End pair to create a named window.
-        //{
-        //    static float f = 0.0f;
-        //    static int counter = 0;
 
-        //    ImGui::Begin("Hello, world!");                          // Create a window called "Hello, world!" and append into it.
 
-        //    ImGui::Text("This is some useful text.");               // Display some text (you can use a format strings too)
-        //    ImGui::Checkbox("Demo Window", &show_demo_window);      // Edit bools storing our window open/close state
-        //    ImGui::Checkbox("Another Window", &show_another_window);
+    //  1. MAKING A GRID [ WITH ZOOM IN/OUT ] AND PROPERTIES PANEL
 
-        //    ImGui::SliderFloat("float", &f, 0.0f, 1.0f);            // Edit 1 float using a slider from 0.0f to 1.0f
-        //    ImGui::ColorEdit3("clear color", (float*)&clear_color); // Edit 3 floats representing a color
 
-        //    if (ImGui::Button("Button"))                            // Buttons return true when clicked (most widgets return true when edited/activated)
-        //        counter++;
-        //    ImGui::SameLine();
-        //    ImGui::Text("counter = %d", counter);
 
-        //    ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
-        //    ImGui::End();
-        //}
 
-        //// 3. Show another simple window.
-        //if (show_another_window)
-        //{
-        //    ImGui::Begin("Another Window", &show_another_window);   // Pass a pointer to our bool variable (the window will have a closing button that will clear the bool when clicked)
-        //    ImGui::Text("Hello from another window!");
-        //    if (ImGui::Button("Close Me"))
-        //        show_another_window = false;
-        //    ImGui::End();
-        //}
+        // Set up your layout
+        ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize); // Full window
+        ImGui::SetNextWindowPos(ImVec2(0, 0));
+        ImGui::Begin("Node Graph Editor", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus);
+        
+        // Let's define canvas width
+        float canvasWidth = 1100.0f;
+        ImVec2 fullSize = ImGui::GetContentRegionAvail();
 
-        //We can start writing code here to setup our window according to our coded functions
-        if (ImGui::Begin("Node Graph"),isopened,ImGuiWindowFlags_NoResize) {
+        // Left-side child canvas for grid
+        ImGui::BeginChild("GridCanvas", ImVec2(canvasWidth, fullSize.y), true , ImGuiWindowFlags_NoBringToFrontOnFocus);
 
-        }ImGui::End();
+        // ZOOM IN/OUT
+        float wheel = ImGui::GetIO().MouseWheel;
+        float ZoomStepSize = 0.1f;
+        if (ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup)) {
+            if (wheel != 0.0f) {
+                gridZoom += wheel * ZoomStepSize;
+                gridZoom = CLAMP(gridZoom, 0.5f, 2.0f);
+            }
+        }
+
+        // === Draw grid ===
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        ImVec2 canvasPos = ImGui::GetCursorScreenPos();  // screen-space top-left
+        ImVec2 canvasSize = ImGui::GetContentRegionAvail();
+        ImVec2 origin = canvasPos;
+
+        float gridSpacing = 20.0f*gridZoom;
+        ImU32 gridColor = IM_COL32(200, 200, 200, 40);
+
+        for (float x = fmodf(origin.x, gridSpacing); x < canvasPos.x + canvasSize.x; x += gridSpacing)
+            drawList->AddLine(ImVec2(x, canvasPos.y), ImVec2(x, canvasPos.y + canvasSize.y), gridColor);
+
+        for (float y = fmodf(origin.y, gridSpacing); y < canvasPos.y + canvasSize.y; y += gridSpacing)
+            drawList->AddLine(ImVec2(canvasPos.x, y), ImVec2(canvasPos.x + canvasSize.x, y), gridColor);
+
+        ImVec2 gridMin = ImGui::GetWindowPos();                     // Top-left of grid
+        ImVec2 gridSize = ImGui::GetWindowSize();                   // Size of grid
+        ImVec2 gridMax(gridMin.x + gridSize.x, gridMin.y + gridSize.y);
+
+        for (int i = 0; i < nodes.size(); ++i) {
+            std::string uniqueName = nodes[i]->NodeName + "##" + std::to_string(i);
+            nodes[i]->Draw(gridMin, gridMax, uniqueName);
+        }
+
+        ImGui::EndChild();
+
+
+        // Right-side panel
+        ImGui::SameLine();
+        ImGui::BeginChild("RightPanel", ImVec2(0, fullSize.y), true, ImGuiWindowFlags_NoBringToFrontOnFocus); // 0 for width = take remaining space
+
+        ImGui::Text("This is the right-side panel.");
+        ImGui::Text("Use this panel for creating different nodes");
+
+        if (ImGui::Button("Create Brightness Node")) {
+            auto node = std::make_unique<BrightnessNode>();
+            node->position = NodeSpawnPos;
+            nodes.push_back(std::move(node));
+        }
+
+        ImGui::EndChild();
+
+        ImGui::End(); // End main window
+
+
+
+
+        // SETTING UP NODES [WINDOW]
+        
+        
+
+
+
+
+        
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         // Rendering
         ImGui::Render();
