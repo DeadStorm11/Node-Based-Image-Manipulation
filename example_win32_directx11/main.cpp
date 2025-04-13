@@ -37,40 +37,49 @@ void CleanupRenderTarget();
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 
+// Get the next available Pin ID
 int GetNextPinId() {
     static int currentId = 1000;
     return currentId++;
 }
-
 
 struct Pin {
     int id;
     string label;
     ImVec2 Pos;
     bool isInput;
+    string ParentNodeId;
     float radius = 5.0f;
 
     bool IsMouseOver(const ImVec2& mousePos) {
         float distance = sqrt(pow(mousePos.x - Pos.x, 2) + pow(mousePos.y - Pos.y, 2));
-        return distance <= radius;
+        return distance <= radius && (mousePos.x > Pos.x);
     }
 };
 
 struct Link {
     int id;
-    Pin* fromPin;
-    Pin* toPin;
+    int fromPinId;  // Using Pin ID instead of Pin pointer
+    int toPinId;    // Using Pin ID instead of Pin pointer
 };
 
-
-// Variables For Linking
-
+// Variables for Linking
 bool isDraggingLink = false;
 ImVec2 dragStartPos = ImVec2(0, 0);
 ImVec2 currentMousePos = ImVec2(0, 0);
 Link* activeLink = nullptr;
 vector<Link> links;
 vector<Pin> Pins;
+
+// Get Pin by ID
+Pin* GetPinById(int pinId) {
+    for (auto& pin : Pins) {
+        if (pin.id == pinId) {
+            return &pin;
+        }
+    }
+    return nullptr;  // Return nullptr if pin with the given ID is not found
+}
 
 Pin* GetPinUnderMouse(vector<Pin>& pins) {
     ImVec2 mousePos = ImGui::GetIO().MousePos;
@@ -98,7 +107,6 @@ void DrawBezierCurve(ImDrawList* drawList, const ImVec2& start, const ImVec2& en
             start.y * (1 - t1) * (1 - t1) + control.y * 2 * (1 - t1) * t1 + end.y * t1 * t1
         );
 
-
         drawList->AddLine(p0, p1, color, thickness);
     }
 }
@@ -119,42 +127,47 @@ void UpdateDragLink() {
     }
     else if (activeLink) {
         // Finalize the link when the mouse is released
-        ImVec2 start = activeLink->fromPin->Pos;
-        ImVec2 end = activeLink->toPin->Pos;
+        Pin* fromPin = GetPinById(activeLink->fromPinId);
+        Pin* toPin = GetPinById(activeLink->toPinId);
 
-        // Draw the final link (with the actual control points)
-        ImVec2 control = ImVec2((start.x + end.x) / 2, (start.y + end.y) / 2 - 50);  // Modify this control point as necessary
-        DrawBezierCurve(drawList, start, end, control, IM_COL32(255, 255, 255, 255));
+        if (fromPin && toPin) {
+            ImVec2 start = fromPin->Pos;
+            ImVec2 end = toPin->Pos;
+            ImVec2 control = ImVec2((start.x + end.x) / 2, (start.y + end.y) / 2 - 50);  // Modify this control point as necessary
+            DrawBezierCurve(drawList, start, end, control, IM_COL32(255, 255, 255, 255));
+        }
     }
 }
+
+// Start dragging the link (when a pin is clicked)
 void StartDragLink(Pin* fromPin) {
     isDraggingLink = true;
     dragStartPos = fromPin->Pos;
     activeLink = new Link(); // Create a new link object
-    activeLink->fromPin = fromPin; // Set the from pin
+    activeLink->fromPinId = fromPin->id; // Set the from pin using Pin ID
 }
 
 // Function to handle releasing the drag (finalizing the link)
 void EndDragLink(Pin* toPin) {
     if (isDraggingLink && activeLink) {
-        activeLink->toPin = toPin; // Set the to pin
+        Pin* fromPin = GetPinById(activeLink->fromPinId);
+        if (fromPin && toPin) {
+            // Only allow connecting Output (fromPin) -> Input (toPin)
+            if (!fromPin->isInput && toPin->isInput) {
+                activeLink->toPinId = toPin->id;
+                links.push_back(*activeLink);
+            }
+        }
         isDraggingLink = false;
-        // Save the active link (connect fromPin to toPin)
-        links.push_back(*activeLink);
+        delete activeLink;
         activeLink = nullptr;
     }
 }
 
-
-
-
-// FUNCTION FOR DRAGGING AND LINKING
-
-
+// Function to draw links and handle dragging
 void DrawLinksAndHandleDrag(vector<Pin>& pins) {
-    
     if (!isDraggingLink && ImGui::IsMouseDown(0)) {
-        Pin* fromPin = GetPinUnderMouse(pins); // Get the pin that was clicked (you'll need to implement this)
+        Pin* fromPin = GetPinUnderMouse(pins); // Get the pin that was clicked
         if (fromPin) {
             StartDragLink(fromPin);
         }
@@ -174,15 +187,21 @@ void DrawLinksAndHandleDrag(vector<Pin>& pins) {
 
     // Draw all existing links
     for (const Link& link : links) {
-        ImVec2 start = link.fromPin->Pos;
-        ImVec2 end = link.toPin->Pos;
-        ImVec2 control = ImVec2((start.x + end.x) / 2, (start.y + end.y) / 2 - 50);
-        DrawBezierCurve(ImGui::GetForegroundDrawList(), start, end, control, IM_COL32(255, 255, 255, 255));
+        Pin* fromPin = GetPinById(link.fromPinId);
+        Pin* toPin = GetPinById(link.toPinId);
+
+        if (fromPin && toPin) {
+            ImVec2 start = fromPin->Pos;
+            ImVec2 end = toPin->Pos;
+            ImVec2 control = ImVec2((start.x + end.x) / 2, (start.y + end.y) / 2 - 50);
+            DrawBezierCurve(ImGui::GetForegroundDrawList(), start, end, control, IM_COL32(255, 255, 255, 255));
+        }
     }
 
     // Draw the dragging link (if any)
     UpdateDragLink();
 }
+
 
 
 // Main code
@@ -275,6 +294,7 @@ int main(int, char**)
         bool selected = false;
         bool resized = false;
         string NodeName = "Simple Node";
+        string NodeId = NodeName;
         vector<Pin> inputPins;
         vector<Pin> outputPins;
         int NumOfInputPins = 1;
@@ -330,18 +350,28 @@ int main(int, char**)
     
     class BrightnessNode : public BaseNode {
     public:
+
         BrightnessNode() {
             NodeName = "Brightness Node";
+            int num = GetNextPinId();
+            NodeId = NodeName + "num";
             NumOfInputPins = 2;
             NumOfOutputPins = 2;
+            ImVec2 winPos = ImGui::GetWindowPos();
+            float InitialLoc = 80.0f;
+            float Gap = 80.0f;
+     
             for (int i = 0;i < NumOfInputPins;i++) {
+                ImVec2 localPos = ImVec2(0, InitialLoc + i * Gap);
                 string PinName1 = "In";
-                inputPins.push_back({ GetNextPinId(),PinName1+"##"+to_string(i),ImVec2(position.x,position.y + 20 * pow(2,i)),true});
+                inputPins.push_back({ GetNextPinId(),PinName1+"##"+to_string(i),ImVec2(winPos.x + localPos.x, winPos.y + localPos.y),true,NodeId});
             }
             for (int j = 0;j < NumOfOutputPins;j++) {
+                ImVec2 localPos = ImVec2(0, InitialLoc + j * Gap);
                 string PinName2 = "Out";
-                outputPins.push_back({ GetNextPinId(),PinName2 + "##" + to_string(j),ImVec2(position.x + size.x,position.y + 20 * pow(2,j)),false });
+                outputPins.push_back({ GetNextPinId(),PinName2 + "##" + to_string(j),ImVec2(winPos.x + localPos.x, winPos.y + localPos.y),false,NodeId});
             }
+            /*Pins.insert(Pins.end(), outputPins.begin(), outputPins.end());*/
         }
         float brightness = 0.0f;
         float contrast = 1.0f;
@@ -352,7 +382,6 @@ int main(int, char**)
             ImVec2 winSize = ImGui::GetWindowSize();
             float InitialLoc = 80.0f;
             float Gap = 80.0f;
-
             // Draw input pins
             for (int i = 0; i < inputPins.size(); ++i) {
                 ImVec2 localPos = ImVec2(0, InitialLoc + i * Gap); // Local offset inside the node
@@ -411,11 +440,61 @@ int main(int, char**)
             }
 
             ImGui::EndGroup();
+  
+            Pins.erase(remove_if(Pins.begin(), Pins.end(), [this](const Pin& p) {return p.ParentNodeId == this->NodeId;}),Pins.end());
+            Pins.insert(Pins.end(), inputPins.begin(), inputPins.end());
             Pins.insert(Pins.end(), outputPins.begin(), outputPins.end());
+            DrawLinksAndHandleDrag(Pins);
  
+            
+        }
+    };
+
+
+
+    class InputImageNode : public BaseNode {
+    public:
+        InputImageNode() {
+            NodeName = "Input Image";
+            int num = GetNextPinId();
+            NodeId = NodeName + "num";
+            NumOfInputPins = 0;
+            NumOfOutputPins = 1;
+
+            ImVec2 winPos = ImGui::GetWindowPos();
+            float InitialLoc = 80.0f;
+
+            ImVec2 localPos = ImVec2(size.x, InitialLoc);
+            string PinName = "Out";
+            outputPins.push_back({ GetNextPinId(), PinName + "##0", ImVec2(winPos.x + localPos.x, winPos.y + localPos.y), false, NodeId });
+        }
+
+        void DrawContent() override {
+            ImDrawList* drawList = ImGui::GetForegroundDrawList();
+            ImVec2 winPos = ImGui::GetWindowPos();
+            ImVec2 winSize = ImGui::GetWindowSize();
+            float InitialLoc = 80.0f;
+
+            // Draw output pin
+            ImVec2 localPos = ImVec2(size.x, InitialLoc);
+            outputPins[0].Pos = ImVec2(winPos.x + localPos.x, winPos.y + localPos.y);
+            drawList->AddCircleFilled(outputPins[0].Pos, 5.0f, IM_COL32(255, 255, 255, 255));
+
+            // Add any visual you want for "Input Image" (text only for now)
+            ImVec2 center = ImVec2(
+                (winSize.x - ImGui::CalcTextSize("Image Source").x) * 0.5f,
+                (winSize.y - ImGui::GetTextLineHeight()) * 0.5f
+            );
+            ImGui::SetCursorPos(center);
+            ImGui::Text("Image Source");
+
+            // Update global pin list and links
+            Pins.erase(remove_if(Pins.begin(), Pins.end(), [this](const Pin& p) { return p.ParentNodeId == this->NodeId; }), Pins.end());
+            Pins.insert(Pins.end(), outputPins.begin(), outputPins.end());
             DrawLinksAndHandleDrag(Pins);
         }
     };
+
 
 
     
@@ -445,6 +524,9 @@ int main(int, char**)
     bool done = false;
     while (!done)
     {
+
+        
+
         // Poll and handle messages (inputs, window resize, etc.)
         // See the WndProc() function below for our to dispatch events to the Win32 backend.
         MSG msg;
@@ -481,7 +563,7 @@ int main(int, char**)
         ImGui::NewFrame();
 
         
-
+        
 
 
     //  1. MAKING A GRID [ WITH ZOOM IN/OUT ] AND PROPERTIES PANEL
@@ -547,6 +629,11 @@ int main(int, char**)
 
         if (ImGui::Button("Create Brightness Node")) {
             auto node = std::make_unique<BrightnessNode>();
+            node->position = NodeSpawnPos;
+            nodes.push_back(std::move(node));
+        }
+        else if (ImGui::Button("Create Input Node")) {
+            auto node = std::make_unique<InputImageNode>();
             node->position = NodeSpawnPos;
             nodes.push_back(std::move(node));
         }
