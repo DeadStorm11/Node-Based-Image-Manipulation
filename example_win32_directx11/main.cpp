@@ -53,7 +53,7 @@ struct Pin {
 
     bool IsMouseOver(const ImVec2& mousePos) {
         float distance = sqrt(pow(mousePos.x - Pos.x, 2) + pow(mousePos.y - Pos.y, 2));
-        return distance <= radius && (mousePos.x > Pos.x);
+        return distance <= radius && isInput?(mousePos.x <= Pos.x):(mousePos.x >= Pos.x);
     }
 };
 
@@ -176,7 +176,7 @@ void DrawLinksAndHandleDrag(vector<Pin>& pins) {
     // Check for release (when mouse button is released)
     if (ImGui::IsMouseReleased(0)) {
         Pin* toPin = GetPinUnderMouse(pins); // Get the pin under the mouse after drag
-        if (toPin && activeLink) {
+        if (toPin && activeLink && toPin!=GetPinById(activeLink->fromPinId)) {
             EndDragLink(toPin);
         }
         else if (activeLink) {
