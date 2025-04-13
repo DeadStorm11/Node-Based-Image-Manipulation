@@ -49,11 +49,11 @@ struct Pin {
     ImVec2 Pos;
     bool isInput;
     string ParentNodeId;
-    float radius = 5.0f;
+    float radius = 6.2f;
 
     bool IsMouseOver(const ImVec2& mousePos) {
         float distance = sqrt(pow(mousePos.x - Pos.x, 2) + pow(mousePos.y - Pos.y, 2));
-        return distance <= radius && isInput?(mousePos.x <= Pos.x):(mousePos.x >= Pos.x);
+        return distance <= radius ;
     }
 };
 
@@ -452,48 +452,48 @@ int main(int, char**)
 
 
 
-    class InputImageNode : public BaseNode {
-    public:
-        InputImageNode() {
-            NodeName = "Input Image";
-            int num = GetNextPinId();
-            NodeId = NodeName + "num";
-            NumOfInputPins = 0;
-            NumOfOutputPins = 1;
+    //class InputImageNode : public BaseNode {
+    //public:
+    //    InputImageNode() {
+    //        NodeName = "Input Image";
+    //        int num = GetNextPinId();
+    //        NodeId = NodeName + "num";
+    //        NumOfInputPins = 0;
+    //        NumOfOutputPins = 1;
 
-            ImVec2 winPos = ImGui::GetWindowPos();
-            float InitialLoc = 80.0f;
+    //        ImVec2 winPos = ImGui::GetWindowPos();
+    //        float InitialLoc = 80.0f;
 
-            ImVec2 localPos = ImVec2(size.x, InitialLoc);
-            string PinName = "Out";
-            outputPins.push_back({ GetNextPinId(), PinName + "##0", ImVec2(winPos.x + localPos.x, winPos.y + localPos.y), false, NodeId });
-        }
+    //        ImVec2 localPos = ImVec2(size.x, InitialLoc);
+    //        string PinName = "Out";
+    //        outputPins.push_back({ GetNextPinId(), PinName + "##0", ImVec2(winPos.x + localPos.x, winPos.y + localPos.y), false, NodeId });
+    //    }
 
-        void DrawContent() override {
-            ImDrawList* drawList = ImGui::GetForegroundDrawList();
-            ImVec2 winPos = ImGui::GetWindowPos();
-            ImVec2 winSize = ImGui::GetWindowSize();
-            float InitialLoc = 80.0f;
+    //    void DrawContent() override {
+    //        ImDrawList* drawList = ImGui::GetForegroundDrawList();
+    //        ImVec2 winPos = ImGui::GetWindowPos();
+    //        ImVec2 winSize = ImGui::GetWindowSize();
+    //        float InitialLoc = 80.0f;
 
-            // Draw output pin
-            ImVec2 localPos = ImVec2(size.x, InitialLoc);
-            outputPins[0].Pos = ImVec2(winPos.x + localPos.x, winPos.y + localPos.y);
-            drawList->AddCircleFilled(outputPins[0].Pos, 5.0f, IM_COL32(255, 255, 255, 255));
+    //        // Draw output pin
+    //        ImVec2 localPos = ImVec2(size.x, InitialLoc);
+    //        outputPins[0].Pos = ImVec2(winPos.x + localPos.x, winPos.y + localPos.y);
+    //        drawList->AddCircleFilled(outputPins[0].Pos, 5.0f, IM_COL32(255, 255, 255, 255));
 
-            // Add any visual you want for "Input Image" (text only for now)
-            ImVec2 center = ImVec2(
-                (winSize.x - ImGui::CalcTextSize("Image Source").x) * 0.5f,
-                (winSize.y - ImGui::GetTextLineHeight()) * 0.5f
-            );
-            ImGui::SetCursorPos(center);
-            ImGui::Text("Image Source");
+    //        // Add any visual you want for "Input Image" (text only for now)
+    //        ImVec2 center = ImVec2(
+    //            (winSize.x - ImGui::CalcTextSize("Image Source").x) * 0.5f,
+    //            (winSize.y - ImGui::GetTextLineHeight()) * 0.5f
+    //        );
+    //        ImGui::SetCursorPos(center);
+    //        ImGui::Text("Image Source");
 
-            // Update global pin list and links
-            Pins.erase(remove_if(Pins.begin(), Pins.end(), [this](const Pin& p) { return p.ParentNodeId == this->NodeId; }), Pins.end());
-            Pins.insert(Pins.end(), outputPins.begin(), outputPins.end());
-            DrawLinksAndHandleDrag(Pins);
-        }
-    };
+    //        // Update global pin list and links
+    //        Pins.erase(remove_if(Pins.begin(), Pins.end(), [this](const Pin& p) { return p.ParentNodeId == this->NodeId; }), Pins.end());
+    //        Pins.insert(Pins.end(), outputPins.begin(), outputPins.end());
+    //        DrawLinksAndHandleDrag(Pins);
+    //    }
+    //};
 
 
 
@@ -632,11 +632,11 @@ int main(int, char**)
             node->position = NodeSpawnPos;
             nodes.push_back(std::move(node));
         }
-        else if (ImGui::Button("Create Input Node")) {
+        /*else if (ImGui::Button("Create Input Node")) {
             auto node = std::make_unique<InputImageNode>();
             node->position = NodeSpawnPos;
             nodes.push_back(std::move(node));
-        }
+        }*/
 
         ImGui::EndChild();
 
