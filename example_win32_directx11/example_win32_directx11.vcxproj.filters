@@ -45,10 +45,7 @@
     <ClInclude Include="imgui_impl_opengl3_loader.h">
       <Filter>sources</Filter>
     </ClInclude>
-    <ClInclude Include="GL\glew.h">
-      <Filter>sources</Filter>
-    </ClInclude>
-    <ClInclude Include="GLFW\glfw3.h">
+    <ClInclude Include="..\External\GLEW\glew-2.1.0\include\GL\glew.h">
       <Filter>sources</Filter>
     </ClInclude>
   </ItemGroup>

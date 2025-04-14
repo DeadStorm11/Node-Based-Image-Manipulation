@@ -18,9 +18,9 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
 #include "ImGuiFileDialog.h"
+#include <GL/glew.h>
+#include <GLFW/glfw3.h>
 #include <GL/gl.h>
-//#include <GL/glew.h>
-//#include <GLFW/glfw3.h>
 
 
 
@@ -215,6 +215,313 @@ GLuint imageTexture = 0;
 int imageWidth = 0, imageHeight = 0;
 bool imageLoaded = false;
 
+
+
+// Node Class
+
+class BaseNode {
+public:
+    ImVec2 position = ImVec2(50, 50);
+    ImVec2 size = ImVec2(150, 250);
+    bool selected = false;
+    bool resized = false;
+    string NodeName = "Simple Node";
+    string NodeId = NodeName;
+    vector<Pin> inputPins;
+    vector<Pin> outputPins;
+    int NumOfInputPins = 1;
+    int NumOfOutputPins = 1;
+
+
+    virtual void Draw(ImVec2 gridMin, ImVec2 gridMax, string& NodeName) {
+        if (!resized) {
+            ImGui::SetNextWindowPos(position);
+            ImGui::SetNextWindowSize(size);
+            resized = true;
+        }
+
+        // Style
+        ImGui::PushStyleColor(ImGuiCol_Border, selected ? IM_COL32(212, 28, 28, 255) : IM_COL32(0, 0, 0, 0));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, selected ? 2.0f : 0.0f);
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(59, 59, 56, 255));
+        GetStyle().WindowRounding = 7.0f;
+
+        ImGui::PushID(this); // Avoid ID conflicts
+
+        if (ImGui::Begin(NodeName.c_str(), nullptr, ImGuiWindowFlags_NoResize)) {
+            ImVec2 winPos = ImGui::GetWindowPos();
+            ImVec2 winSize = ImGui::GetWindowSize();
+
+            if (ImGui::IsWindowHovered() && ImGui::IsMouseDragging(0)) {
+                ImVec2 delta = ImGui::GetIO().MouseDelta;
+                winPos.x += delta.x;
+                winPos.y += delta.y;
+
+                winPos.x = CLAMP(winPos.x, gridMin.x, gridMax.x - winSize.x);
+                winPos.y = CLAMP(winPos.y, gridMin.y, gridMax.y - winSize.y);
+                ImGui::SetWindowPos(winPos);
+                position = winPos;
+            }
+
+            selected = ImGui::IsWindowHovered() && ImGui::IsMouseClicked(0);
+
+            DrawContent();
+        }
+        ImGui::End();
+
+        ImGui::PopStyleColor(2);
+        ImGui::PopStyleVar();
+        ImGui::PopID();
+    }
+
+    virtual void DrawContent() = 0;
+    virtual ~BaseNode() = default;
+};
+
+// Brightness Node
+
+class BrightnessNode : public BaseNode {
+public:
+
+    BrightnessNode() {
+        NodeName = "Brightness Node";
+        int num = GetNextPinId();
+        NodeId = NodeName + "num";
+        NumOfInputPins = 1;
+        NumOfOutputPins = 1;
+        ImVec2 winPos = ImGui::GetWindowPos();
+        float InitialLoc = 120.0f;
+
+
+        for (int i = 0;i < NumOfInputPins;i++) {
+            ImVec2 localPos = ImVec2(0, InitialLoc);
+            string PinName1 = "In";
+            inputPins.push_back({ GetNextPinId(),PinName1 + "##" + to_string(i),ImVec2(winPos.x + localPos.x, winPos.y + localPos.y),true,NodeId });
+        }
+        for (int j = 0;j < NumOfOutputPins;j++) {
+            ImVec2 localPos = ImVec2(0, InitialLoc);
+            string PinName2 = "Out";
+            outputPins.push_back({ GetNextPinId(),PinName2 + "##" + to_string(j),ImVec2(winPos.x + localPos.x, winPos.y + localPos.y),false,NodeId });
+        }
+        /*Pins.insert(Pins.end(), outputPins.begin(), outputPins.end());*/
+    }
+    float brightness = 0.0f;
+    float contrast = 1.0f;
+
+    void DrawContent() override {
+        ImDrawList* drawList = ImGui::GetForegroundDrawList();
+        ImVec2 winPos = ImGui::GetWindowPos();
+        ImVec2 winSize = ImGui::GetWindowSize();
+        float InitialLoc = 120.0f;
+
+        // Draw input pins
+        for (int i = 0; i < inputPins.size(); ++i) {
+            ImVec2 localPos = ImVec2(0, InitialLoc); // Local offset inside the node
+            inputPins[i].Pos = ImVec2(winPos.x + localPos.x, winPos.y + localPos.y);
+            drawList->AddCircleFilled(inputPins[i].Pos, 5.0f, IM_COL32(255, 255, 255, 255));
+        }
+
+        // Draw output pins
+        for (int i = 0; i < outputPins.size(); ++i) {
+            ImVec2 localPos = ImVec2(size.x, InitialLoc); // Right edge of node
+            outputPins[i].Pos = ImVec2(winPos.x + localPos.x, winPos.y + localPos.y);
+            drawList->AddCircleFilled(outputPins[i].Pos, 5.0f, IM_COL32(255, 255, 255, 255));
+        }
+        float controlsWidth = 120.0f;   // Slider width
+        float resetButtonWidth = controlsWidth * 0.5f; // Shorter reset buttons
+        float controlSpacing = 15.0f;
+
+        float controlsHeight = (ImGui::GetTextLineHeight() + ImGui::GetFrameHeight() * 2 + controlSpacing + 10.0f) * 2;
+
+        ImVec2 center(
+            (winSize.x - controlsWidth) * 0.5f,
+            (winSize.y - controlsHeight) * 0.5f
+        );
+        ImGui::SetCursorPos(center);
+
+        ImGui::BeginGroup();
+
+        // Brightness
+        ImGui::SetCursorPosX(center.x + (controlsWidth - ImGui::CalcTextSize("Brightness").x) * 0.5f);
+        ImGui::Text("Brightness");
+
+        ImGui::SetCursorPosX(center.x);
+        ImGui::SetNextItemWidth(controlsWidth);
+        ImGui::SliderFloat("##Brightness", &brightness, -100.0f, 100.0f, "%.1f");
+
+        // Center the short Reset button
+        ImGui::SetCursorPosX(center.x + (controlsWidth - resetButtonWidth) * 0.5f);
+        if (ImGui::Button("Reset##0", ImVec2(resetButtonWidth, 0))) {
+            brightness = 0.0f;
+        }
+
+        // Gap
+        ImGui::Dummy(ImVec2(1.0f, controlSpacing));
+
+        // Contrast
+        ImGui::SetCursorPosX(center.x + (controlsWidth - ImGui::CalcTextSize("Contrast").x) * 0.5f);
+        ImGui::Text("Contrast");
+
+        ImGui::SetCursorPosX(center.x);
+        ImGui::SetNextItemWidth(controlsWidth);
+        ImGui::SliderFloat("##Contrast", &contrast, 0.0f, 3.0f, "%.2f");
+
+        ImGui::SetCursorPosX(center.x + (controlsWidth - resetButtonWidth) * 0.5f);
+        if (ImGui::Button("Reset##1", ImVec2(resetButtonWidth, 0))) {
+            contrast = 1.0f;
+        }
+
+        ImGui::EndGroup();
+
+        Pins.erase(remove_if(Pins.begin(), Pins.end(), [this](const Pin& p) {return p.ParentNodeId == this->NodeId;}), Pins.end());
+        Pins.insert(Pins.end(), inputPins.begin(), inputPins.end());
+        Pins.insert(Pins.end(), outputPins.begin(), outputPins.end());
+        DrawLinksAndHandleDrag(Pins);
+
+
+    }
+};
+
+
+
+class InputImageNode : public BaseNode {
+public:
+    InputImageNode() {
+        NodeName = "Input Image";
+        NodeId = NodeName + "num";
+        NumOfInputPins = 0;
+        NumOfOutputPins = 1;
+
+        ImVec2 winPos = ImGui::GetWindowPos();
+        float InitialLoc = 120.0f;
+
+        ImVec2 localPos = ImVec2(size.x, InitialLoc);
+        string PinName = "Out";
+        outputPins.push_back({ GetNextPinId(), PinName + "##0", ImVec2(winPos.x + localPos.x, winPos.y + localPos.y), false, NodeId });
+    }
+
+    void DrawContent() override {
+        ImDrawList* drawList = ImGui::GetForegroundDrawList();
+        ImVec2 winPos = ImGui::GetWindowPos();
+        float InitialLoc = 120.0f;
+
+        ImVec2 localPos = ImVec2(size.x, InitialLoc);
+        outputPins[0].Pos = ImVec2(winPos.x + localPos.x, winPos.y + localPos.y);
+        drawList->AddCircleFilled(outputPins[0].Pos, 5.0f, IM_COL32(255, 255, 255, 255));
+
+        // UI Title
+        ImGui::Text("Image Source");
+
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        // Button to open file dialog
+        if (ImGui::Button("Load Image")) {
+            // Open file dialog with filter for image files
+            ImGuiFileDialog::Instance()->OpenDialog("ChooseImage", "Choose Image", ".png,.jpg,.jpeg,.bmp");
+        }
+
+        // Handle image selection
+        if (ImGuiFileDialog::Instance()->Display("ChooseImage")) {
+            if (ImGuiFileDialog::Instance()->IsOk()) {
+                std::string filePath = ImGuiFileDialog::Instance()->GetFilePathName();
+
+                // Load image using stb_image
+                int nChannels;
+                unsigned char* data = stbi_load(filePath.c_str(), &imageWidth, &imageHeight, &nChannels, 4);
+                if (data) {
+                    if (imageTexture) {
+                        glDeleteTextures(1, &imageTexture);
+                    }
+
+                    glGenTextures(1, &imageTexture);
+                    glBindTexture(GL_TEXTURE_2D, imageTexture);
+                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, imageWidth, imageHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+                    stbi_image_free(data);
+                    imageLoaded = true;
+                }
+            }
+            ImGuiFileDialog::Instance()->Close();
+        }
+
+        // Display image if loaded
+        if (imageLoaded) {
+            float maxWidth = ImGui::GetContentRegionAvail().x;
+            float aspect = (float)imageHeight / (float)imageWidth;
+            float imageDisplayWidth = maxWidth;
+            float imageDisplayHeight = maxWidth * aspect;
+
+            //ImGui::Image((void*)(intptr_t)imageTexture, ImVec2(imageDisplayWidth, imageDisplayHeight));
+
+        }
+
+        // Update pins
+        Pins.erase(remove_if(Pins.begin(), Pins.end(), [this](const Pin& p) { return p.ParentNodeId == this->NodeId; }), Pins.end());
+        Pins.insert(Pins.end(), outputPins.begin(), outputPins.end());
+        DrawLinksAndHandleDrag(Pins);
+    }
+};
+
+
+
+class OutputImageNode : public BaseNode {
+public:
+    OutputImageNode() {
+        NodeName = "Output Image";
+        NodeId = NodeName + "num";
+        NumOfInputPins = 1;
+        NumOfOutputPins = 0;
+
+        ImVec2 winPos = ImGui::GetWindowPos();
+        float InitialLoc = 100.0f;
+
+        ImVec2 localPos = ImVec2(0, InitialLoc);
+        string PinName = "In";
+        inputPins.push_back({ GetNextPinId(), PinName + "##0", ImVec2(winPos.x + localPos.x, winPos.y + localPos.y), true, NodeId });
+    }
+
+    void DrawContent() override {
+        ImDrawList* drawList = ImGui::GetForegroundDrawList();
+        ImVec2 winPos = ImGui::GetWindowPos();
+        ImVec2 winSize = ImGui::GetWindowSize();
+        float InitialLoc = 120.0f;
+
+        // Draw input pin
+        ImVec2 localPos = ImVec2(0, InitialLoc);
+        inputPins[0].Pos = ImVec2(winPos.x + localPos.x, winPos.y + localPos.y);
+        drawList->AddCircleFilled(inputPins[0].Pos, 5.0f, IM_COL32(255, 255, 255, 255));
+
+        // Visual representation
+        ImVec2 center = ImVec2(
+            (winSize.x - ImGui::CalcTextSize("Display Output").x) * 0.5f,
+            (winSize.y - ImGui::GetTextLineHeight()) * 0.5f
+        );
+        ImGui::SetCursorPos(center);
+        ImGui::Text("Display Output");
+
+        // Update pins
+        Pins.erase(remove_if(Pins.begin(), Pins.end(), [this](const Pin& p) { return p.ParentNodeId == this->NodeId; }), Pins.end());
+        Pins.insert(Pins.end(), inputPins.begin(), inputPins.end());
+        DrawLinksAndHandleDrag(Pins);
+    }
+};
+
+
+
+
+
+
+
+
+
+
+vector<std::unique_ptr<BaseNode>> nodes;
+
+
+
+
+
 // Main code
 int main(int, char**)
 {
@@ -272,333 +579,7 @@ int main(int, char**)
     
 
 
-    // Pin Class
 
-    //struct Pin {
-    //    int id;
-    //    string label;
-    //    ImVec2 Pos;
-    //    bool isInput;
-    //    float radius = 5.0f;
-
-    //    bool IsMouseOver(const ImVec2& mousePos) {
-    //        float distance = sqrt(pow(mousePos.x - Pos.x, 2) + pow(mousePos.y - Pos.y, 2));
-    //        return distance <= radius;
-    //    }
-    //};
-
-
-
-    // Link Class
-
-    //struct Link {
-    //    int id;
-    //    int fromPinId;
-    //    int toPinId;
-    //};
-
-    // Node Class
-
-    class BaseNode {
-    public:
-        ImVec2 position = ImVec2(50, 50);
-        ImVec2 size = ImVec2(150, 250);
-        bool selected = false;
-        bool resized = false;
-        string NodeName = "Simple Node";
-        string NodeId = NodeName;
-        vector<Pin> inputPins;
-        vector<Pin> outputPins;
-        int NumOfInputPins = 1;
-        int NumOfOutputPins = 1;
-
-
-        virtual void Draw(ImVec2 gridMin, ImVec2 gridMax, string &NodeName) {
-            if (!resized) {
-                ImGui::SetNextWindowPos(position);
-                ImGui::SetNextWindowSize(size);
-                resized = true;
-            }
-
-            // Style
-            ImGui::PushStyleColor(ImGuiCol_Border, selected ? IM_COL32(212, 28, 28, 255) : IM_COL32(0, 0, 0, 0));
-            ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, selected ? 2.0f : 0.0f);
-            ImGui::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(59, 59, 56, 255));
-            GetStyle().WindowRounding = 7.0f;
-
-            ImGui::PushID(this); // Avoid ID conflicts
-
-            if (ImGui::Begin(NodeName.c_str(), nullptr, ImGuiWindowFlags_NoResize)) {
-                ImVec2 winPos = ImGui::GetWindowPos();
-                ImVec2 winSize = ImGui::GetWindowSize();
-
-                if (ImGui::IsWindowHovered() && ImGui::IsMouseDragging(0)) {
-                    ImVec2 delta = ImGui::GetIO().MouseDelta;
-                    winPos.x += delta.x;
-                    winPos.y += delta.y;
-
-                    winPos.x = CLAMP(winPos.x, gridMin.x, gridMax.x - winSize.x);
-                    winPos.y = CLAMP(winPos.y, gridMin.y, gridMax.y - winSize.y);
-                    ImGui::SetWindowPos(winPos);
-                    position = winPos;
-                }
-
-                selected = ImGui::IsWindowHovered() && ImGui::IsMouseClicked(0);
-
-                DrawContent();
-            }
-            ImGui::End();
-
-            ImGui::PopStyleColor(2);
-            ImGui::PopStyleVar();
-            ImGui::PopID();
-        }
-
-        virtual void DrawContent() = 0;
-        virtual ~BaseNode() = default;
-    };
-
-    // Brightness Node
-    
-    class BrightnessNode : public BaseNode {
-    public:
-
-        BrightnessNode() {
-            NodeName = "Brightness Node";
-            int num = GetNextPinId();
-            NodeId = NodeName + "num";
-            NumOfInputPins = 1;
-            NumOfOutputPins = 1;
-            ImVec2 winPos = ImGui::GetWindowPos();
-            float InitialLoc = 120.0f;
-            
-     
-            for (int i = 0;i < NumOfInputPins;i++) {
-                ImVec2 localPos = ImVec2(0, InitialLoc);
-                string PinName1 = "In";
-                inputPins.push_back({ GetNextPinId(),PinName1+"##"+to_string(i),ImVec2(winPos.x + localPos.x, winPos.y + localPos.y),true,NodeId});
-            }
-            for (int j = 0;j < NumOfOutputPins;j++) {
-                ImVec2 localPos = ImVec2(0, InitialLoc);
-                string PinName2 = "Out";
-                outputPins.push_back({ GetNextPinId(),PinName2 + "##" + to_string(j),ImVec2(winPos.x + localPos.x, winPos.y + localPos.y),false,NodeId});
-            }
-            /*Pins.insert(Pins.end(), outputPins.begin(), outputPins.end());*/
-        }
-        float brightness = 0.0f;
-        float contrast = 1.0f;
-
-        void DrawContent() override {
-            ImDrawList* drawList = ImGui::GetForegroundDrawList();
-            ImVec2 winPos = ImGui::GetWindowPos();
-            ImVec2 winSize = ImGui::GetWindowSize();
-            float InitialLoc = 120.0f;
-            
-            // Draw input pins
-            for (int i = 0; i < inputPins.size(); ++i) {
-                ImVec2 localPos = ImVec2(0, InitialLoc); // Local offset inside the node
-                inputPins[i].Pos = ImVec2(winPos.x + localPos.x, winPos.y + localPos.y);
-                drawList->AddCircleFilled(inputPins[i].Pos, 5.0f, IM_COL32(255, 255, 255, 255));
-            }
-
-            // Draw output pins
-            for (int i = 0; i < outputPins.size(); ++i) {
-                ImVec2 localPos = ImVec2(size.x, InitialLoc); // Right edge of node
-                outputPins[i].Pos = ImVec2(winPos.x + localPos.x,winPos.y+localPos.y);
-                drawList->AddCircleFilled(outputPins[i].Pos, 5.0f, IM_COL32(255, 255, 255, 255));
-            }
-            float controlsWidth = 120.0f;   // Slider width
-            float resetButtonWidth = controlsWidth * 0.5f; // Shorter reset buttons
-            float controlSpacing = 15.0f;
-
-            float controlsHeight = (ImGui::GetTextLineHeight() + ImGui::GetFrameHeight() * 2 + controlSpacing + 10.0f) * 2;
-
-            ImVec2 center(
-                (winSize.x - controlsWidth) * 0.5f,
-                (winSize.y - controlsHeight) * 0.5f
-            );
-            ImGui::SetCursorPos(center);
-
-            ImGui::BeginGroup();
-
-            // Brightness
-            ImGui::SetCursorPosX(center.x + (controlsWidth - ImGui::CalcTextSize("Brightness").x) * 0.5f);
-            ImGui::Text("Brightness");
-
-            ImGui::SetCursorPosX(center.x);
-            ImGui::SetNextItemWidth(controlsWidth);
-            ImGui::SliderFloat("##Brightness", &brightness, -100.0f, 100.0f, "%.1f");
-
-            // Center the short Reset button
-            ImGui::SetCursorPosX(center.x + (controlsWidth - resetButtonWidth) * 0.5f);
-            if (ImGui::Button("Reset##0", ImVec2(resetButtonWidth, 0))) {
-                brightness = 0.0f;
-            }
-
-            // Gap
-            ImGui::Dummy(ImVec2(1.0f, controlSpacing));
-
-            // Contrast
-            ImGui::SetCursorPosX(center.x + (controlsWidth - ImGui::CalcTextSize("Contrast").x) * 0.5f);
-            ImGui::Text("Contrast");
-
-            ImGui::SetCursorPosX(center.x);
-            ImGui::SetNextItemWidth(controlsWidth);
-            ImGui::SliderFloat("##Contrast", &contrast, 0.0f, 3.0f, "%.2f");
-
-            ImGui::SetCursorPosX(center.x + (controlsWidth - resetButtonWidth) * 0.5f);
-            if (ImGui::Button("Reset##1", ImVec2(resetButtonWidth, 0))) {
-                contrast = 1.0f;
-            }
-
-            ImGui::EndGroup();
-  
-            Pins.erase(remove_if(Pins.begin(), Pins.end(), [this](const Pin& p) {return p.ParentNodeId == this->NodeId;}),Pins.end());
-            Pins.insert(Pins.end(), inputPins.begin(), inputPins.end());
-            Pins.insert(Pins.end(), outputPins.begin(), outputPins.end());
-            DrawLinksAndHandleDrag(Pins);
- 
-            
-        }
-    };
-
-
-
-
-
- 
-
-    class InputImageNode : public BaseNode {
-    public:
-        InputImageNode() {
-            NodeName = "Input Image";
-            NodeId = NodeName + "num";
-            NumOfInputPins = 0;
-            NumOfOutputPins = 1;
-            
-
-            ImVec2 winPos = ImGui::GetWindowPos();
-            float InitialLoc = 120.0f;
-
-            ImVec2 localPos = ImVec2(size.x, InitialLoc);
-            string PinName = "Out";
-            outputPins.push_back({ GetNextPinId(), PinName + "##0", ImVec2(winPos.x + localPos.x, winPos.y + localPos.y), false, NodeId });
-        }
-
-        void DrawContent() override {
-            ImDrawList* drawList = ImGui::GetForegroundDrawList();
-            ImVec2 winPos = ImGui::GetWindowPos();
-            ImVec2 winSize = ImGui::GetWindowSize();
-            float InitialLoc = 120.0f;
-
-            ImVec2 localPos = ImVec2(size.x, InitialLoc);
-            outputPins[0].Pos = ImVec2(winPos.x + localPos.x, winPos.y + localPos.y);
-            drawList->AddCircleFilled(outputPins[0].Pos, 5.0f, IM_COL32(255, 255, 255, 255));
-
-            // UI Title
-            ImGui::Text("Image Source");
-
-             //Button to open file dialog
-            if (ImGui::Button("Load Image")) {
-                ImGuiFileDialog::Instance()->OpenDialog("ChooseImage", "Choose Image", ".png,.jpg,.jpeg,.bmp");
-            }
-
-            // Handle image selection
-            if (ImGuiFileDialog::Instance()->Display("ChooseImage")) {
-                if (ImGuiFileDialog::Instance()->IsOk()) {
-                    std::string filePath = ImGuiFileDialog::Instance()->GetFilePathName();
-
-                    // Load image using stb_image
-                    int nChannels;
-                    unsigned char* data = stbi_load(filePath.c_str(), &imageWidth, &imageHeight, &nChannels, 4);
-                    if (data) {
-                        if (imageTexture) {
-                           glDeleteTextures(1, &imageTexture);
-                        }
-
-                        glGenTextures(1, &imageTexture);
-                        glBindTexture(GL_TEXTURE_2D, imageTexture);
-                        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, imageWidth, imageHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
-                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-                        stbi_image_free(data);
-                        imageLoaded = true;
-                    }
-                }
-                ImGuiFileDialog::Instance()->Close();
-            }
-
-            // Display image if loaded
-            if (imageLoaded) {
-                float maxWidth = ImGui::GetContentRegionAvail().x;
-                float aspect = (float)imageHeight / (float)imageWidth;
-                float imageDisplayWidth = maxWidth;
-                float imageDisplayHeight = maxWidth * aspect;
-
-                //ImGui::Image((void*)(intptr_t)imageTexture, ImVec2(imageDisplayWidth, imageDisplayHeight));
-            }
-
-            // Update pins
-            Pins.erase(remove_if(Pins.begin(), Pins.end(), [this](const Pin& p) { return p.ParentNodeId == this->NodeId; }), Pins.end());
-            Pins.insert(Pins.end(), outputPins.begin(), outputPins.end());
-            DrawLinksAndHandleDrag(Pins);
-        }
-    };
-
-
-    class OutputImageNode : public BaseNode {
-    public:
-        OutputImageNode() {
-            NodeName = "Output Image";
-            NodeId = NodeName + "num";
-            NumOfInputPins = 1;
-            NumOfOutputPins = 0;
-
-            ImVec2 winPos = ImGui::GetWindowPos();
-            float InitialLoc = 100.0f;
-
-            ImVec2 localPos = ImVec2(0, InitialLoc);
-            string PinName = "In";
-            inputPins.push_back({ GetNextPinId(), PinName + "##0", ImVec2(winPos.x + localPos.x, winPos.y + localPos.y), true, NodeId });
-        }
-
-        void DrawContent() override {
-            ImDrawList* drawList = ImGui::GetForegroundDrawList();
-            ImVec2 winPos = ImGui::GetWindowPos();
-            ImVec2 winSize = ImGui::GetWindowSize();
-            float InitialLoc = 120.0f;
-
-            // Draw input pin
-            ImVec2 localPos = ImVec2(0, InitialLoc);
-            inputPins[0].Pos = ImVec2(winPos.x + localPos.x, winPos.y + localPos.y);
-            drawList->AddCircleFilled(inputPins[0].Pos, 5.0f, IM_COL32(255, 255, 255, 255));
-
-            // Visual representation
-            ImVec2 center = ImVec2(
-                (winSize.x - ImGui::CalcTextSize("Display Output").x) * 0.5f,
-                (winSize.y - ImGui::GetTextLineHeight()) * 0.5f
-            );
-            ImGui::SetCursorPos(center);
-            ImGui::Text("Display Output");
-
-            // Update pins
-            Pins.erase(remove_if(Pins.begin(), Pins.end(), [this](const Pin& p) { return p.ParentNodeId == this->NodeId; }), Pins.end());
-            Pins.insert(Pins.end(), inputPins.begin(), inputPins.end());
-            DrawLinksAndHandleDrag(Pins);
-        }
-    };
-
-
-    
-
-    
-
-
-
-
-
-    vector<std::unique_ptr<BaseNode>> nodes;
     // Our state
     //bool show_demo_window = true;
     //bool show_another_window = false;

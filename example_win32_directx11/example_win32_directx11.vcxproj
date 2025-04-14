@@ -99,13 +99,13 @@
     <ClCompile>
       <WarningLevel>Level4</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <AdditionalIncludeDirectories>..\..;..\..\backends;%(AdditionalIncludeDirectories);</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\Tanish\Downloads\imgui-1.91.9b\imgui-1.91.9b\examples\External\GLFW\glfw-3.4.bin.WIN32\include;C:\Users\Tanish\Downloads\imgui-1.91.9b\imgui-1.91.9b\examples\External\GLEW\glew-2.1.0\include;..\..;..\..\backends;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>d3d11.lib;d3dcompiler.lib;dxgi.lib;glew32.lib;glfw3.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>$(DXSDK_DIR)/Lib/x64;C:\Users\Tanish\Downloads\glew-2.1.0-win32\glew-2.1.0\lib\Release\x64;C:\Users\Tanish\Downloads\glfw-3.4.bin.WIN32\glfw-3.4.bin.WIN32\lib-vc2022;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>d3d11.lib;d3dcompiler.lib;dxgi.lib;opengl32.lib;glew32.lib;glfw3.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(DXSDK_DIR)/Lib/x64;C:\Users\Tanish\Downloads\imgui-1.91.9b\imgui-1.91.9b\examples\External\GLFW\glfw-3.4.bin.WIN32\lib-vc2022;C:\Users\Tanish\Downloads\imgui-1.91.9b\imgui-1.91.9b\examples\External\GLEW\glew-2.1.0\lib\Release\Win32;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <SubSystem>Console</SubSystem>
     </Link>
   </ItemDefinitionGroup>
@@ -153,9 +153,8 @@
     <ClInclude Include="..\..\imgui_internal.h" />
     <ClInclude Include="..\..\backends\imgui_impl_dx11.h" />
     <ClInclude Include="..\..\backends\imgui_impl_win32.h" />
+    <ClInclude Include="..\External\GLEW\glew-2.1.0\include\GL\glew.h" />
     <ClInclude Include="dirent\dirent.h" />
-    <ClInclude Include="GLFW\glfw3.h" />
-    <ClInclude Include="GL\glew.h" />
     <ClInclude Include="ImGuiFileDialog.h" />
     <ClInclude Include="ImGuiFileDialogConfig.h" />
     <ClInclude Include="imgui_impl_opengl3.h" />
