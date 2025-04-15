@@ -24,6 +24,10 @@
 #include <windows.h>
 #include <commdlg.h>
 #include <iostream>
+#include <d3dcompiler.h>
+//#pragma comment(lib, "d3dcompiler.lib")
+//#pragma comment(lib, "d3d11.lib")
+
 
 using namespace ImGui;
 using namespace std;
@@ -219,6 +223,157 @@ void DrawLinksAndHandleDrag(vector<Pin>& pins) {
     UpdateDragLink();
 }
 
+ID3D11PixelShader* g_brightnessShader = nullptr;  // Pixel Shader
+ID3DBlob* pixelShaderBlob = nullptr;  // Compiled Shader Blob
+ID3DBlob* errorBlob = nullptr;
+ID3D11Buffer* pBCBuffer = nullptr;
+
+struct BrightnessContrastBuffer
+{
+    float brightness;
+    float contrast;
+    float padding[2];  // Padding to ensure the structure is 16-byte aligned
+};
+
+void CreateConstantBuffer()
+{
+    D3D11_BUFFER_DESC cbDesc = {};
+    cbDesc.Usage = D3D11_USAGE_DYNAMIC;  // Dynamic buffer to update data every frame
+    cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;  // Binding to constant buffer
+    cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;  // CPU can update the buffer
+    cbDesc.ByteWidth = sizeof(BrightnessContrastBuffer);  // Size of buffer
+
+    HRESULT hr = g_pd3dDevice->CreateBuffer(&cbDesc, nullptr, &pBCBuffer);
+
+    if (FAILED(hr))
+    {
+        std::cerr << "Failed to create constant buffer." << std::endl;
+    }
+}
+
+void LoadShader()
+{
+    HRESULT hr;
+
+    // Compile the shader
+     hr = D3DCompileFromFile(
+        L"BrightnessContrast.hlsl",
+        nullptr,
+        nullptr,
+        "main",            // Entry point in HLSL
+        "ps_5_0",          // Pixel Shader Model
+        0,
+        0,
+        &pixelShaderBlob,
+        &errorBlob
+    );
+
+     hr = D3D11CreateDevice(
+         nullptr,                       // Use default adapter
+         D3D_DRIVER_TYPE_HARDWARE,       // Use the hardware GPU
+         nullptr,                       // No software rasterizer
+         D3D11_CREATE_DEVICE_DEBUG,      // Enable debug layer (if needed)
+         nullptr,                       // Default feature level array
+         0,                              // Count of feature levels
+         D3D11_SDK_VERSION,              // SDK version
+         &g_pd3dDevice,                 // Output device
+         nullptr,                       // Supported feature level (nullptr for default)
+         &g_pd3dDeviceContext           // Output context
+     );
+
+
+    if (FAILED(hr))
+    {
+        if (errorBlob)
+        {
+            std::cerr << "Shader Compilation Failed: " << (char*)errorBlob->GetBufferPointer() << std::endl;
+        }
+        else
+        {
+            std::cerr << "Shader Compilation Failed with no error blob." << std::endl;
+        }
+        return;
+    }
+
+    // Create the pixel shader
+    hr = g_pd3dDevice->CreatePixelShader(
+        pixelShaderBlob->GetBufferPointer(),  // Shader bytecode
+        pixelShaderBlob->GetBufferSize(),     // Size of shader bytecode
+        nullptr,                              // Class linkage (none in this case)
+        &g_brightnessShader                   // Output pixel shader
+    );
+
+    if (FAILED(hr))
+    {
+        std::cerr << "Failed to create pixel shader." << std::endl;
+        return;
+    }
+
+    std::cout << "Shader loaded successfully!" << std::endl;
+    CreateConstantBuffer();
+}
+
+
+
+
+
+
+
+void UpdateConstantBuffer(float brightness, float contrast)
+{
+    BrightnessContrastBuffer bcValues = {};
+    bcValues.brightness = brightness;
+    bcValues.contrast = contrast;
+
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    HRESULT hr = g_pd3dDeviceContext->Map(pBCBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
+
+    if (FAILED(hr))
+    {
+        std::cerr << "Failed to map constant buffer." << std::endl;
+        return;
+    }
+
+    memcpy(mapped.pData, &bcValues, sizeof(bcValues));
+    g_pd3dDeviceContext->Unmap(pBCBuffer, 0);
+}
+
+
+void BindResources(ID3D11ShaderResourceView* textureSRV, ID3D11SamplerState* samplerState)
+{
+    // Set pixel shader
+    g_pd3dDeviceContext->PSSetShader(g_brightnessShader, nullptr, 0);
+
+    // Bind the texture to slot 0
+    g_pd3dDeviceContext->PSSetShaderResources(0, 1, &textureSRV);
+
+    // Set the sampler state to slot 0
+    g_pd3dDeviceContext->PSSetSamplers(0, 1, &samplerState);
+
+    // Bind the constant buffer to slot 0
+    g_pd3dDeviceContext->PSSetConstantBuffers(0, 1, &pBCBuffer);
+}
+
+
+void DrawObject(ID3D11ShaderResourceView* textureSRV, ID3D11SamplerState* samplerState)
+{
+    // Bind resources before drawing
+    BindResources(textureSRV, samplerState);
+
+    // Draw the object (e.g., DrawIndexed, Draw, etc.)
+    //g_pd3dDeviceContext->DrawIndexed(...);  // Use appropriate arguments for your specific case
+}
+
+
+
+
+
+
+
+
+
+
+
 
 
 ID3D11ShaderResourceView* LoadTextureFromFileDX11(const char* filename, int* outWidth, int* outHeight)
@@ -269,31 +424,31 @@ ID3D11ShaderResourceView* LoadTextureFromFileDX11(const char* filename, int* out
     return srv;
 }
 
-void ApplyBrightnessContrastShader(ID3D11ShaderResourceView* imageSRV, float brightness, float contrast) {
-    // Assuming you have a shader already loaded into the device context
-    ID3D11DeviceContext* deviceContext; // Get your device context
-    ID3D11PixelShader* brightnessContrastShader; // Load your pixel shader
-
-    // Update the constant buffer with the brightness and contrast values
-    struct Params {
-        float brightness;
-        float contrast;
-    };
-
-    Params params = { brightness, contrast };
-    ID3D11Buffer* constantBuffer; // Create or get your constant buffer
-    deviceContext->UpdateSubresource(constantBuffer, 0, nullptr, &params, 0, 0);
-
-    // Set the shader and constant buffer
-    deviceContext->PSSetShader(brightnessContrastShader, nullptr, 0);
-    deviceContext->PSSetConstantBuffers(0, 1, &constantBuffer);
-
-    // Bind the texture (imageSRV) to the shader
-    deviceContext->PSSetShaderResources(0, 1, &imageSRV);
-
-    // Draw the quad or texture where you want the image displayed
-    // Ensure you have the proper vertex buffer for a screen-aligned quad
-}
+//void ApplyBrightnessContrastShader(ID3D11ShaderResourceView* imageSRV, float brightness, float contrast) {
+//    // Assuming you have a shader already loaded into the device context
+//    ID3D11DeviceContext* deviceContext; // Get your device context
+//    ID3D11PixelShader* brightnessContrastShader; // Load your pixel shader
+//
+//    // Update the constant buffer with the brightness and contrast values
+//    struct Params {
+//        float brightness;
+//        float contrast;
+//    };
+//
+//    Params params = { brightness, contrast };
+//    ID3D11Buffer* constantBuffer; // Create or get your constant buffer
+//    deviceContext->UpdateSubresource(constantBuffer, 0, nullptr, &params, 0, 0);
+//
+//    // Set the shader and constant buffer
+//    deviceContext->PSSetShader(brightnessContrastShader, nullptr, 0);
+//    deviceContext->PSSetConstantBuffers(0, 1, &constantBuffer);
+//
+//    // Bind the texture (imageSRV) to the shader
+//    deviceContext->PSSetShaderResources(0, 1, &imageSRV);
+//
+//    // Draw the quad or texture where you want the image displayed
+//    // Ensure you have the proper vertex buffer for a screen-aligned quad
+//}
 
 
 
@@ -453,17 +608,19 @@ public:
         }
 
         ImGui::EndGroup();
-        for (auto& pin : outputPins) {
-            if (pin.IsConnectedToMiddle) {
+        for (auto& pin : Pins) {
+            if (pin.ParentNodeId== this->NodeId && pin.IsConnectedToMiddle) {
+                cout << "Yes You are Close" << endl;
                 imageSRV = pin.imageSRV;
                 CanChangeBrightNess = true;
             }
         }
 
         if (CanChangeBrightNess) {
-            ApplyBrightnessContrastShader(imageSRV, brightness, contrast);
+ 
+            //UpdateConstantBuffer(brightness, contrast);
         }
-
+   
         Pins.erase(remove_if(Pins.begin(), Pins.end(), [this](const Pin& p) {return p.ParentNodeId == this->NodeId;}), Pins.end());
         Pins.insert(Pins.end(), inputPins.begin(), inputPins.end());
         Pins.insert(Pins.end(), outputPins.begin(), outputPins.end());
@@ -633,6 +790,7 @@ public:
                             reverseFromPin->IsConnectedToMiddle = true;
                             reverseFromPin->imageSRV = imageSRV;
                             DisplayImage = true;
+                            cout << 1;
                             break;
                         }
                     }
@@ -688,6 +846,9 @@ vector<std::unique_ptr<BaseNode>> nodes;
 // Main code
 int main(int, char**)
 {
+    LoadShader();
+
+
     
     // Create application window
     //ImGui_ImplWin32_EnableDpiAwareness();
@@ -863,6 +1024,8 @@ int main(int, char**)
 
         ImGui::Text("This is the right-side panel.");
         ImGui::Text("Use this panel for creating different nodes");
+        ImGui::Text("Caution! Brightness Node is not working so work accordingly");
+        ImGui::Text("You can load images and preview them");
 
         if (ImGui::Button("Create Brightness Node")) {
             auto node = std::make_unique<BrightnessNode>();
