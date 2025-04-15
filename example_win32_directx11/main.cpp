@@ -46,6 +46,8 @@ void CleanupRenderTarget();
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 
+
+
 // Get the next available Pin ID
 int GetNextPinId() {
     static int currentId = 1000;
@@ -60,7 +62,9 @@ struct Pin {
     string ParentNodeId;
     float radius = 6.2f;
     bool IsInputNodePin = false;
+    bool IsConnectedToMiddle = false;
     ID3D11ShaderResourceView* imageSRV = nullptr;
+    
 
     bool IsMouseOver(const ImVec2& mousePos) {
         double distance = sqrt(pow(mousePos.x - Pos.x, 2) + pow(mousePos.y - Pos.y, 2));
@@ -265,6 +269,32 @@ ID3D11ShaderResourceView* LoadTextureFromFileDX11(const char* filename, int* out
     return srv;
 }
 
+void ApplyBrightnessContrastShader(ID3D11ShaderResourceView* imageSRV, float brightness, float contrast) {
+    // Assuming you have a shader already loaded into the device context
+    ID3D11DeviceContext* deviceContext; // Get your device context
+    ID3D11PixelShader* brightnessContrastShader; // Load your pixel shader
+
+    // Update the constant buffer with the brightness and contrast values
+    struct Params {
+        float brightness;
+        float contrast;
+    };
+
+    Params params = { brightness, contrast };
+    ID3D11Buffer* constantBuffer; // Create or get your constant buffer
+    deviceContext->UpdateSubresource(constantBuffer, 0, nullptr, &params, 0, 0);
+
+    // Set the shader and constant buffer
+    deviceContext->PSSetShader(brightnessContrastShader, nullptr, 0);
+    deviceContext->PSSetConstantBuffers(0, 1, &constantBuffer);
+
+    // Bind the texture (imageSRV) to the shader
+    deviceContext->PSSetShaderResources(0, 1, &imageSRV);
+
+    // Draw the quad or texture where you want the image displayed
+    // Ensure you have the proper vertex buffer for a screen-aligned quad
+}
+
 
 
 // Node Class
@@ -332,7 +362,8 @@ public:
 
 class BrightnessNode : public BaseNode {
 public:
-
+    bool CanChangeBrightNess = false;
+    ID3D11ShaderResourceView* imageSRV = nullptr;
     BrightnessNode() {
         NodeName = "Brightness Node";
         int num = GetNextPinId();
@@ -422,6 +453,16 @@ public:
         }
 
         ImGui::EndGroup();
+        for (auto& pin : outputPins) {
+            if (pin.IsConnectedToMiddle) {
+                imageSRV = pin.imageSRV;
+                CanChangeBrightNess = true;
+            }
+        }
+
+        if (CanChangeBrightNess) {
+            ApplyBrightnessContrastShader(imageSRV, brightness, contrast);
+        }
 
         Pins.erase(remove_if(Pins.begin(), Pins.end(), [this](const Pin& p) {return p.ParentNodeId == this->NodeId;}), Pins.end());
         Pins.insert(Pins.end(), inputPins.begin(), inputPins.end());
@@ -567,17 +608,43 @@ public:
 
     void DrawContent() override {
         for (auto& Link : links) {
-            Pin* fromPin = GetPinById(Link.fromPinId);   
+            Pin* fromPin = GetPinById(Link.fromPinId);
             Pin* toPin = GetPinById(Link.toPinId);
-            if ((fromPin->IsInputNodePin && toPin->ParentNodeId == this->NodeId)) 
-            {
+
+            // Check if the link connects to this node
+            if (fromPin->IsInputNodePin && toPin->ParentNodeId == this->NodeId) {
                 imageSRV = fromPin->imageSRV;
                 if (imageSRV) {
                     DisplayImage = true;
                     break;
                 }
             }
+            // If the link doesn't directly connect to this node, check the reverse link
+            else if (fromPin->IsInputNodePin && toPin->ParentNodeId != this->NodeId) {
+                string ID = toPin->ParentNodeId;
+
+                // Search for a reverse link to this node
+                for (auto& reverseLink : links) {
+                    Pin* reverseFromPin = GetPinById(reverseLink.fromPinId);
+                    Pin* reverseToPin = GetPinById(reverseLink.toPinId);
+                    if (reverseFromPin->ParentNodeId == ID && reverseToPin->ParentNodeId == this->NodeId) {
+                        imageSRV = fromPin->imageSRV;
+                        if (imageSRV) {
+                            reverseFromPin->IsConnectedToMiddle = true;
+                            reverseFromPin->imageSRV = imageSRV;
+                            DisplayImage = true;
+                            break;
+                        }
+                    }
+                }
+
+                // If we found an image, exit both loops
+                if (DisplayImage) {
+                    break;
+                }
+            }
         }
+
         ImDrawList* drawList = ImGui::GetForegroundDrawList();
         ImVec2 winPos = ImGui::GetWindowPos();
         ImVec2 winSize = ImGui::GetWindowSize();
@@ -588,12 +655,7 @@ public:
         inputPins[0].Pos = ImVec2(winPos.x + localPos.x, winPos.y + localPos.y);
         drawList->AddCircleFilled(inputPins[0].Pos, 5.0f, IM_COL32(255, 255, 255, 255));
 
-        //// Visual representation
-        //ImVec2 center = ImVec2(
-        //    (winSize.x - ImGui::CalcTextSize("Display Output").x) * 0.5f,
-        //    (winSize.y - ImGui::GetTextLineHeight()) * 0.5f
-        //);
-        //ImGui::SetCursorPos(center);
+        
         ImGui::Text("Display Output");
 
         if (DisplayImage) {
