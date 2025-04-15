@@ -59,6 +59,8 @@ struct Pin {
     bool isInput;
     string ParentNodeId;
     float radius = 6.2f;
+    bool IsInputNodePin = false;
+    ID3D11ShaderResourceView* imageSRV = nullptr;
 
     bool IsMouseOver(const ImVec2& mousePos) {
         double distance = sqrt(pow(mousePos.x - Pos.x, 2) + pow(mousePos.y - Pos.y, 2));
@@ -100,6 +102,7 @@ Pin* GetPinUnderMouse(vector<Pin>& pins) {
     }
     return nullptr;
 }
+
 
 void DrawBezierCurve(ImDrawList* drawList, const ImVec2& start, const ImVec2& end, const ImVec2& control, ImU32 color, float thickness = 1.5f) {
     const int segments = 30;
@@ -263,6 +266,7 @@ ID3D11ShaderResourceView* LoadTextureFromFileDX11(const char* filename, int* out
 }
 
 
+
 // Node Class
 
 class BaseNode {
@@ -349,7 +353,7 @@ public:
             string PinName2 = "Out";
             outputPins.push_back({ GetNextPinId(),PinName2 + "##" + to_string(j),ImVec2(winPos.x + localPos.x, winPos.y + localPos.y),false,NodeId });
         }
-        /*Pins.insert(Pins.end(), outputPins.begin(), outputPins.end());*/
+        
     }
     float brightness = 0.0f;
     float contrast = 1.0f;
@@ -442,7 +446,7 @@ public:
         float InitialLoc = 120.0f;
         ImVec2 localPos = ImVec2(size.x, InitialLoc);
         std::string PinName = "Out";
-        outputPins.push_back({ GetNextPinId(), PinName + "##0", ImVec2(winPos.x + localPos.x, winPos.y + localPos.y), false, NodeId });
+        outputPins.push_back({ GetNextPinId(), PinName + "##0", ImVec2(winPos.x + localPos.x, winPos.y + localPos.y), false, NodeId , 6.2f,true});
     }
 
     ~InputImageNode() {
@@ -481,6 +485,7 @@ public:
 
         stbi_set_flip_vertically_on_load(0);
         imageSRV = LoadTextureFromFileDX11(filePath.c_str(), &imageWidth, &imageHeight);
+        outputPins[0].imageSRV = imageSRV; // Set the imageSRV to the output pin
         imageLoaded = (imageSRV != nullptr);
         
 
@@ -542,21 +547,37 @@ private:
 
 class OutputImageNode : public BaseNode {
 public:
+    bool DisplayImage = false;
+    int imageWidth = 500/4;
+    int imageHeight = 1000/4;
+    ID3D11ShaderResourceView* imageSRV = nullptr;
     OutputImageNode() {
         NodeName = "Output Image";
         NodeId = NodeName + "num";
         NumOfInputPins = 1;
         NumOfOutputPins = 0;
-
         ImVec2 winPos = ImGui::GetWindowPos();
         float InitialLoc = 100.0f;
 
         ImVec2 localPos = ImVec2(0, InitialLoc);
         string PinName = "In";
         inputPins.push_back({ GetNextPinId(), PinName + "##0", ImVec2(winPos.x + localPos.x, winPos.y + localPos.y), true, NodeId });
+        
     }
 
     void DrawContent() override {
+        for (auto& Link : links) {
+            Pin* fromPin = GetPinById(Link.fromPinId);   
+            Pin* toPin = GetPinById(Link.toPinId);
+            if ((fromPin->IsInputNodePin && toPin->ParentNodeId == this->NodeId)) 
+            {
+                imageSRV = fromPin->imageSRV;
+                if (imageSRV) {
+                    DisplayImage = true;
+                    break;
+                }
+            }
+        }
         ImDrawList* drawList = ImGui::GetForegroundDrawList();
         ImVec2 winPos = ImGui::GetWindowPos();
         ImVec2 winSize = ImGui::GetWindowSize();
@@ -567,13 +588,25 @@ public:
         inputPins[0].Pos = ImVec2(winPos.x + localPos.x, winPos.y + localPos.y);
         drawList->AddCircleFilled(inputPins[0].Pos, 5.0f, IM_COL32(255, 255, 255, 255));
 
-        // Visual representation
-        ImVec2 center = ImVec2(
-            (winSize.x - ImGui::CalcTextSize("Display Output").x) * 0.5f,
-            (winSize.y - ImGui::GetTextLineHeight()) * 0.5f
-        );
-        ImGui::SetCursorPos(center);
+        //// Visual representation
+        //ImVec2 center = ImVec2(
+        //    (winSize.x - ImGui::CalcTextSize("Display Output").x) * 0.5f,
+        //    (winSize.y - ImGui::GetTextLineHeight()) * 0.5f
+        //);
+        //ImGui::SetCursorPos(center);
         ImGui::Text("Display Output");
+
+        if (DisplayImage) {
+            float maxWidth = ImGui::GetContentRegionAvail().x;
+            float aspectRatio = (float)imageHeight / (float)imageWidth;
+            float displayWidth = (maxWidth > imageWidth) ? imageWidth : maxWidth;
+            float displayHeight = displayWidth * aspectRatio;
+
+            ImGui::Text("Preview:");
+            ImGui::BeginChild("ImagePreview", ImVec2(displayWidth, displayHeight), true);
+            ImGui::Image((ImTextureID)imageSRV, ImVec2(displayWidth, displayHeight));
+            ImGui::EndChild();
+        }
 
         // Update pins
         Pins.erase(remove_if(Pins.begin(), Pins.end(), [this](const Pin& p) { return p.ParentNodeId == this->NodeId; }), Pins.end());
