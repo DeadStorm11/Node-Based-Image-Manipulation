@@ -1,0 +1,88 @@
+# Design Document for Node Editor with Image Processing
+
+## 1. Project Overview
+This project is a **node-based image processing editor** designed to give users an intuitive visual interface for manipulating images with various effects like brightness and contrast adjustments. Inspired by Blender's Shader Graph, this editor allows users to visually connect and control different nodes to build custom image processing pipelines. Users can drag and drop nodes like input, output, and effects (e.g., brightness) and link them using a pin system. The editor provides flexibility for complex image manipulation and offers real-time feedback.
+
+The project uses **DirectX 11** for rendering and interacting with shaders. The system leverages libraries like **STB Image** for image handling and **Bezier curves** for visualizing connections between nodes. The core of the system is built using a node and pin-based architecture to represent the flow of data and effects between the components.
+
+## 2. System Architecture
+
+The architecture of the node editor is built around several key components, each responsible for distinct parts of the image processing pipeline:
+
+### 2.1 Node-Based System
+- **Nodes** represent different elements of the image processing pipeline, such as input, output, and image effects (like brightness). 
+- The system is designed to be **extensible**, allowing new types of nodes to be added easily, such as additional image effects or filters.
+- Nodes are connected using **pins**, which are the entry/exit points for data flow.
+- A **Base Node Class** serves as the foundation for all node types, and derived classes represent different node types (e.g., InputNode, OutputNode, BrightnessNode).
+
+### 2.2 Pin System
+- Each node has input and output pins that define how data is passed between nodes.
+- A node’s pins connect to another node's pins, forming a network of nodes that define the image processing flow.
+- Pins are placed in a **grid layout**, ensuring that the user interface remains organized and intuitive.
+
+### 2.3 Link System
+- Links between nodes are visualized using **Bezier curves**, providing a smooth and aesthetically pleasing way to represent connections between pins.
+- The link system dynamically draws these curves as users create connections, making it easy to follow the flow of data through the node graph.
+- The use of Bezier curves also helps to handle cases where nodes are far apart or overlapping, ensuring that the connections remain clear and visually appealing.
+
+### 2.4 Image Processing
+- The main functionality of the system revolves around manipulating image data. 
+- For each effect (e.g., brightness, contrast), a shader is used to apply the transformation to the image. 
+- The **DirectX 11** API is used for rendering the image and applying the shaders. Each node, when connected, updates the image in real-time, providing immediate feedback to the user.
+- Image data is handled using **STB Image**, a lightweight image library that allows easy loading and saving of images. This library is integrated to support standard image formats.
+
+### 2.5 User Interface (UI)
+- The editor's UI is designed for ease of use. It features:
+  - A **grid layout** for nodes and connections.
+  - **Buttons** for creating new nodes (e.g., input, output, brightness).
+  - A **properties panel** that allows users to tweak parameters like brightness and contrast in real-time.
+  - A **context menu** for additional node and connection management options.
+- The UI is interactive, with real-time visual feedback as nodes are connected, and parameters are adjusted.
+
+## 3. Third-Party Libraries and Tools
+
+This project leverages several third-party libraries to handle image processing and rendering:
+
+### 3.1 **DirectX 11**
+- **Purpose:** Used for rendering the image and applying shaders.
+- **Reason:** DirectX 11 is well-suited for Windows-based graphics programming and provides fine control over the graphics pipeline, which is essential for applying custom image effects in real-time.
+
+### 3.2 **STB Image**
+- **Purpose:** Used for image loading and saving.
+- **Reason:** STB Image is a lightweight and simple-to-use image loading library that supports popular formats like PNG, JPG, and BMP. It was chosen because of its simplicity and ease of integration with the project.
+
+### 3.3 **Bezier Curve Library**
+- **Purpose:** Used to draw smooth curves between node pins for the link system.
+- **Reason:** Bezier curves provide a clean and visually appealing way to represent the connections between nodes. They also help maintain a consistent and readable layout when nodes are far apart or overlapping.
+
+### 3.4 **ImGui**
+- **Purpose:** Used for creating the UI elements such as buttons, sliders, and text inputs.
+- **Reason:** ImGui is a popular immediate mode GUI library that is easy to integrate into projects like this one. It provides an efficient way to create user interfaces without worrying about complex UI management.
+
+
+## 4. Instructions on How to Use the Node Editor
+
+To use the node editor, follow these steps:
+
+1. **Launch the Application:**
+   - Start the application, and the main editor window will appear.
+
+2. **Create Nodes:**
+   - Click on the **Create Node** button to add a new node.
+   - Nodes like **Input**, **Output**, and **Brightness** are available to start with.
+
+3. **Connect Nodes:**
+   - Drag from one node’s output pin to another node’s input pin to create a link.
+   - The connection will be visualized using Bezier curves.
+   
+4. **Adjust Node Parameters:**
+   - Select a node, and adjust its properties (e.g., brightness level) in the **Properties Panel**.
+   - Parameters will be updated in real-time as you make adjustments.
+
+5. **Load and Save Images:**
+   - Use the **File** menu to load an image from disk.
+   - Apply effects using the nodes and save the processed image.
+
+## 6. Conclusion
+
+This node-based image processing editor provides a flexible and intuitive way to manipulate images using shaders. With its node, pin, and link system, it offers a powerful platform for image effects development. The use of DirectX 11 for rendering and STB Image for image handling ensures smooth and efficient performance.
