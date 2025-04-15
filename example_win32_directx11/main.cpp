@@ -23,7 +23,7 @@
 #include <GL/gl.h>
 #include <windows.h>
 #include <commdlg.h>
-
+#include <iostream>
 
 using namespace ImGui;
 using namespace std;
@@ -212,10 +212,55 @@ void DrawLinksAndHandleDrag(vector<Pin>& pins) {
     UpdateDragLink();
 }
 
-GLuint imageTexture = 0;
-int imageWidth = 0, imageHeight = 0;
-bool imageLoaded = false;
 
+
+ID3D11ShaderResourceView* LoadTextureFromFileDX11(const char* filename, int* outWidth, int* outHeight)
+{
+    int imageWidth = 0;
+    int imageHeight = 0;
+    int nChannels = 0;
+
+    stbi_set_flip_vertically_on_load(1);
+    unsigned char* imageData = stbi_load(filename, &imageWidth, &imageHeight, &nChannels, 4);
+    if (!imageData)
+        return nullptr;
+
+    *outWidth = imageWidth;
+    *outHeight = imageHeight;
+
+    D3D11_TEXTURE2D_DESC desc = {};
+    desc.Width = imageWidth;
+    desc.Height = imageHeight;
+    desc.MipLevels = 1;
+    desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    desc.CPUAccessFlags = 0;
+
+    D3D11_SUBRESOURCE_DATA initData = {};
+    initData.pSysMem = imageData;
+    initData.SysMemPitch = imageWidth * 4;
+
+    ID3D11Texture2D* texture = nullptr;
+    HRESULT hr = g_pd3dDevice->CreateTexture2D(&desc, &initData, &texture);
+    stbi_image_free(imageData);
+
+    if (FAILED(hr))
+        return nullptr;
+
+    D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    srvDesc.Format = desc.Format;
+    srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Texture2D.MipLevels = 1;
+
+    ID3D11ShaderResourceView* srv = nullptr;
+    g_pd3dDevice->CreateShaderResourceView(texture, &srvDesc, &srv);
+    texture->Release();
+
+    return srv;
+}
 
 
 // Node Class
@@ -395,96 +440,103 @@ public:
 
         ImVec2 winPos = ImGui::GetWindowPos();
         float InitialLoc = 120.0f;
-
         ImVec2 localPos = ImVec2(size.x, InitialLoc);
-        string PinName = "Out";
+        std::string PinName = "Out";
         outputPins.push_back({ GetNextPinId(), PinName + "##0", ImVec2(winPos.x + localPos.x, winPos.y + localPos.y), false, NodeId });
     }
 
-    // Native Windows File Dialog function (with wide-character support)
-    std::string OpenImageFileDialog() {
-        OPENFILENAME ofn; // Common dialog box structure
-        wchar_t szFile[260]; // Buffer for file name (wide-character version)
+    ~InputImageNode() {
+        if (imageSRV) {
+            imageSRV->Release();
+            imageSRV = nullptr;
+        }
+    }
 
-        // Initialize OPENFILENAME
+    std::string OpenImageFileDialog() {
+        OPENFILENAME ofn;
+        wchar_t szFile[260] = {};
         ZeroMemory(&ofn, sizeof(ofn));
         ofn.lStructSize = sizeof(ofn);
         ofn.hwndOwner = nullptr;
         ofn.lpstrFile = szFile;
-        ofn.nMaxFile = sizeof(szFile) / sizeof(wchar_t); // Adjust size for wide chars
+        ofn.nMaxFile = sizeof(szFile) / sizeof(wchar_t);
         ofn.lpstrFilter = L"Image Files\0*.BMP;*.JPG;*.PNG;*.JPEG\0All Files\0*.*\0";
         ofn.nFilterIndex = 1;
-        ofn.lpstrFile[0] = L'\0';  // Ensure it's empty initially
-        ofn.lpstrFileTitle = nullptr;
-        ofn.nMaxFileTitle = 0;
-        ofn.lpstrInitialDir = nullptr;
         ofn.lpstrTitle = L"Open Image File";
         ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
 
         if (GetOpenFileName(&ofn) == TRUE) {
-            // Convert wide-character file path to std::string (UTF-8)
             std::wstring wstr(ofn.lpstrFile);
-            std::string str(wstr.begin(), wstr.end()); // Convert to UTF-8
-            return str;
+            return std::string(wstr.begin(), wstr.end());
         }
 
-        return ""; // Return empty string if no file is selected
+        return "";
+    }
+
+    void LoadImage(const std::string& filePath) {
+        if (imageSRV) {
+            imageSRV->Release();
+            imageSRV = nullptr;
+        }
+
+        stbi_set_flip_vertically_on_load(0);
+        imageSRV = LoadTextureFromFileDX11(filePath.c_str(), &imageWidth, &imageHeight);
+        imageLoaded = (imageSRV != nullptr);
+        
+
+        if (!imageLoaded) {
+            std::cerr << "Failed to load image." << std::endl;
+        }
     }
 
     void DrawContent() override {
         ImDrawList* drawList = ImGui::GetForegroundDrawList();
         ImVec2 winPos = ImGui::GetWindowPos();
         float InitialLoc = 120.0f;
-
         ImVec2 localPos = ImVec2(size.x, InitialLoc);
         outputPins[0].Pos = ImVec2(winPos.x + localPos.x, winPos.y + localPos.y);
         drawList->AddCircleFilled(outputPins[0].Pos, 5.0f, IM_COL32(255, 255, 255, 255));
 
-        // UI Title
         ImGui::Text("Image Source");
 
-        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-
-        // Button to open native file dialog
         if (ImGui::Button("Load Image")) {
-            std::string filePath = OpenImageFileDialog(); // Open the native file dialog
+            std::string filePath = OpenImageFileDialog();
             if (!filePath.empty()) {
-                // Load image using stb_image
-                int nChannels;
-                unsigned char* data = stbi_load(filePath.c_str(), &imageWidth, &imageHeight, &nChannels, 4);
-                if (data) {
-                    if (imageTexture) {
-                        glDeleteTextures(1, &imageTexture);
-                    }
-
-                    glGenTextures(1, &imageTexture);
-                    glBindTexture(GL_TEXTURE_2D, imageTexture);
-                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, imageWidth, imageHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
-                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-                    stbi_image_free(data);
-                    imageLoaded = true;
-                }
+                LoadImage(filePath); // Call image loading outside draw call
             }
         }
 
-        // Display image if loaded
-        if (imageLoaded) {
+        if (imageLoaded && imageSRV != nullptr && imageWidth > 0 && imageHeight > 0) {
             float maxWidth = ImGui::GetContentRegionAvail().x;
-            float aspect = (float)imageHeight / (float)imageWidth;
-            float imageDisplayWidth = maxWidth;
-            float imageDisplayHeight = maxWidth * aspect;
+            float aspectRatio = (float)imageHeight / (float)imageWidth;
+            float displayWidth = (maxWidth > imageWidth) ? imageWidth : maxWidth;
+            float displayHeight = displayWidth * aspectRatio;
 
-            ImGui::Image((intptr_t)imageTexture, ImVec2(imageDisplayWidth, imageDisplayHeight));
+            ImGui::Text("Preview:");
+            ImGui::BeginChild("ImagePreview", ImVec2(displayWidth, displayHeight), true);
+            ImGui::Image((ImTextureID)imageSRV, ImVec2(displayWidth, displayHeight));
+            ImGui::EndChild();
         }
 
         // Update pins
-        Pins.erase(remove_if(Pins.begin(), Pins.end(), [this](const Pin& p) { return p.ParentNodeId == this->NodeId; }), Pins.end());
+        Pins.erase(std::remove_if(Pins.begin(), Pins.end(), [this](const Pin& p) {
+            return p.ParentNodeId == this->NodeId;
+            }), Pins.end());
+
         Pins.insert(Pins.end(), outputPins.begin(), outputPins.end());
+
         DrawLinksAndHandleDrag(Pins);
     }
+
+private:
+    ID3D11ShaderResourceView* imageSRV = nullptr;
+    int imageWidth = 500;
+    int imageHeight = 1000;
+    bool imageLoaded = false;
 };
+
+
+
 
 
 
