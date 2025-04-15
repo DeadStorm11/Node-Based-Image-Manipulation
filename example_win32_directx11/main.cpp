@@ -21,7 +21,8 @@
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include <GL/gl.h>
-
+#include <windows.h>
+#include <commdlg.h>
 
 
 using namespace ImGui;
@@ -400,6 +401,36 @@ public:
         outputPins.push_back({ GetNextPinId(), PinName + "##0", ImVec2(winPos.x + localPos.x, winPos.y + localPos.y), false, NodeId });
     }
 
+    // Native Windows File Dialog function (with wide-character support)
+    std::string OpenImageFileDialog() {
+        OPENFILENAME ofn; // Common dialog box structure
+        wchar_t szFile[260]; // Buffer for file name (wide-character version)
+
+        // Initialize OPENFILENAME
+        ZeroMemory(&ofn, sizeof(ofn));
+        ofn.lStructSize = sizeof(ofn);
+        ofn.hwndOwner = nullptr;
+        ofn.lpstrFile = szFile;
+        ofn.nMaxFile = sizeof(szFile) / sizeof(wchar_t); // Adjust size for wide chars
+        ofn.lpstrFilter = L"Image Files\0*.BMP;*.JPG;*.PNG;*.JPEG\0All Files\0*.*\0";
+        ofn.nFilterIndex = 1;
+        ofn.lpstrFile[0] = L'\0';  // Ensure it's empty initially
+        ofn.lpstrFileTitle = nullptr;
+        ofn.nMaxFileTitle = 0;
+        ofn.lpstrInitialDir = nullptr;
+        ofn.lpstrTitle = L"Open Image File";
+        ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+
+        if (GetOpenFileName(&ofn) == TRUE) {
+            // Convert wide-character file path to std::string (UTF-8)
+            std::wstring wstr(ofn.lpstrFile);
+            std::string str(wstr.begin(), wstr.end()); // Convert to UTF-8
+            return str;
+        }
+
+        return ""; // Return empty string if no file is selected
+    }
+
     void DrawContent() override {
         ImDrawList* drawList = ImGui::GetForegroundDrawList();
         ImVec2 winPos = ImGui::GetWindowPos();
@@ -413,17 +444,11 @@ public:
         ImGui::Text("Image Source");
 
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-        // Button to open file dialog
+
+        // Button to open native file dialog
         if (ImGui::Button("Load Image")) {
-            // Open file dialog with filter for image files
-            ImGuiFileDialog::Instance()->OpenDialog("ChooseImage", "Choose Image", ".png,.jpg,.jpeg,.bmp");
-        }
-
-        // Handle image selection
-        if (ImGuiFileDialog::Instance()->Display("ChooseImage")) {
-            if (ImGuiFileDialog::Instance()->IsOk()) {
-                std::string filePath = ImGuiFileDialog::Instance()->GetFilePathName();
-
+            std::string filePath = OpenImageFileDialog(); // Open the native file dialog
+            if (!filePath.empty()) {
                 // Load image using stb_image
                 int nChannels;
                 unsigned char* data = stbi_load(filePath.c_str(), &imageWidth, &imageHeight, &nChannels, 4);
@@ -442,7 +467,6 @@ public:
                     imageLoaded = true;
                 }
             }
-            ImGuiFileDialog::Instance()->Close();
         }
 
         // Display image if loaded
@@ -452,8 +476,7 @@ public:
             float imageDisplayWidth = maxWidth;
             float imageDisplayHeight = maxWidth * aspect;
 
-            //ImGui::Image((void*)(intptr_t)imageTexture, ImVec2(imageDisplayWidth, imageDisplayHeight));
-
+            ImGui::Image((intptr_t)imageTexture, ImVec2(imageDisplayWidth, imageDisplayHeight));
         }
 
         // Update pins
@@ -506,13 +529,6 @@ public:
         DrawLinksAndHandleDrag(Pins);
     }
 };
-
-
-
-
-
-
-
 
 
 
